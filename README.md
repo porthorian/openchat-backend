@@ -3,7 +3,7 @@
 Backend service for decentralized OpenChat server instances.
 
 ## Status
-Planning stage.
+Early implementation stage.
 
 ## Current Focus
 - E2EE-compatible channel message architecture.
@@ -14,3 +14,47 @@ Planning stage.
 
 ## Docs
 - `docs/architecture/README.md`
+
+## Local Run
+```bash
+go run ./cmd/openchatd
+```
+
+Default address: `:8080`
+
+## RTC Joiner (Audio Stream Test Tool)
+Start a signaling client that joins a voice channel and streams audio over `rtc.media.state`.
+Default mode (`pcm-frames`) decodes source audio to 48k mono PCM frames (via `ffmpeg`) for real-time-ish playback in the Electron client.
+
+```bash
+go run ./cmd/openchat-rtc-joiner \
+  --channel-id vc_general \
+  --file ./pina_colada.mp3 \
+  --file-type mp3
+```
+
+Key flags:
+- `--channel-id` (required): voice channel id.
+- `--file`: file path to transmit.
+- `--file-type`: label for transmitted file chunks (required with `--file`).
+- `--media-mode`: `pcm-frames` (default) or `chunks`.
+- `--ffmpeg-bin`: ffmpeg binary path used in `pcm-frames` mode.
+- `--backend-url`: backend base URL (default `http://localhost:8080`).
+- `--server-id`: server id for join ticket (default `srv_harbor`).
+- `--loop`: replay file indefinitely.
+- `--write-received-dir`: optional directory to reconstruct incoming streams from other joiners.
+
+Example receiver that writes incoming streams:
+
+```bash
+go run ./cmd/openchat-rtc-joiner \
+  --channel-id vc_general \
+  --media-mode chunks \
+  --write-received-dir ./tmp/incoming
+```
+
+## Implemented Endpoints (Current)
+- `GET /healthz`
+- `GET /v1/client/capabilities`
+- `POST /v1/rtc/channels/:channel_id/join-ticket`
+- `GET /v1/rtc/signaling` (WebSocket)
