@@ -28,6 +28,17 @@ type Hub struct {
 	subscribersByRoom map[string]map[string]*client
 }
 
+type presenceMember struct {
+	ClientID string `json:"client_id"`
+	UserUID  string `json:"user_uid"`
+	DeviceID string `json:"device_id"`
+}
+
+type channelDeparture struct {
+	channelID string
+	peers     []*client
+}
+
 func NewHub(logger *slog.Logger) *Hub {
 	return &Hub{
 		logger: logger,
@@ -100,23 +111,37 @@ func (h *Hub) register(c *client) {
 	h.clientsByID[c.id] = c
 }
 
-func (h *Hub) unregister(c *client) {
+func (h *Hub) unregister(c *client) []channelDeparture {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.clientsByID, c.id)
+	departures := make([]channelDeparture, 0, len(c.subscriptions))
 	for channelID := range c.subscriptions {
 		room := h.subscribersByRoom[channelID]
 		if room == nil {
 			continue
 		}
+		if _, subscribed := room[c.id]; !subscribed {
+			continue
+		}
 		delete(room, c.id)
+		peers := make([]*client, 0, len(room))
+		for _, peer := range room {
+			peers = append(peers, peer)
+		}
+		departures = append(departures, channelDeparture{
+			channelID: channelID,
+			peers:     peers,
+		})
 		if len(room) == 0 {
 			delete(h.subscribersByRoom, channelID)
 		}
 	}
+	c.subscriptions = make(map[string]struct{})
+	return departures
 }
 
-func (h *Hub) subscribe(c *client, channelID string) {
+func (h *Hub) subscribe(c *client, channelID string) ([]presenceMember, []*client, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	room := h.subscribersByRoom[channelID]
@@ -124,22 +149,40 @@ func (h *Hub) subscribe(c *client, channelID string) {
 		room = make(map[string]*client)
 		h.subscribersByRoom[channelID] = room
 	}
+	_, alreadySubscribed := c.subscriptions[channelID]
 	room[c.id] = c
 	c.subscriptions[channelID] = struct{}{}
+	snapshot := make([]presenceMember, 0, len(room))
+	peers := make([]*client, 0, len(room))
+	for _, member := range room {
+		snapshot = append(snapshot, presenceMemberFromClient(member))
+		if member.id != c.id {
+			peers = append(peers, member)
+		}
+	}
+	return snapshot, peers, !alreadySubscribed
 }
 
-func (h *Hub) unsubscribe(c *client, channelID string) {
+func (h *Hub) unsubscribe(c *client, channelID string) ([]*client, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if _, subscribed := c.subscriptions[channelID]; !subscribed {
+		return nil, false
+	}
 	delete(c.subscriptions, channelID)
 	room := h.subscribersByRoom[channelID]
 	if room == nil {
-		return
+		return nil, true
 	}
 	delete(room, c.id)
+	peers := make([]*client, 0, len(room))
+	for _, peer := range room {
+		peers = append(peers, peer)
+	}
 	if len(room) == 0 {
 		delete(h.subscribersByRoom, channelID)
 	}
+	return peers, true
 }
 
 type client struct {
@@ -185,8 +228,21 @@ func (c *client) handleEnvelope(envelope Envelope) {
 			c.enqueue(errorEnvelope(envelope.RequestID, "chat_channel_required", "channel_id is required", false))
 			return
 		}
-		c.hub.subscribe(c, channelID)
+		snapshot, peers, joined := c.hub.subscribe(c, channelID)
 		c.enqueue(newEnvelope("chat.subscribed", envelope.RequestID, map[string]any{"channel_id": channelID}))
+		c.enqueue(newEnvelope("chat.presence.snapshot", "", map[string]any{
+			"channel_id": channelID,
+			"members":    snapshot,
+		}))
+		if joined {
+			joinedEnvelope := newEnvelope("chat.presence.joined", "", map[string]any{
+				"channel_id": channelID,
+				"member":     presenceMemberFromClient(c),
+			})
+			for _, peer := range peers {
+				peer.enqueue(joinedEnvelope)
+			}
+		}
 	case "chat.unsubscribe":
 		var payload struct {
 			ChannelID string `json:"channel_id"`
@@ -196,8 +252,17 @@ func (c *client) handleEnvelope(envelope Envelope) {
 		if channelID == "" {
 			return
 		}
-		c.hub.unsubscribe(c, channelID)
+		peers, removed := c.hub.unsubscribe(c, channelID)
 		c.enqueue(newEnvelope("chat.unsubscribed", envelope.RequestID, map[string]any{"channel_id": channelID}))
+		if removed {
+			leftEnvelope := newEnvelope("chat.presence.left", "", map[string]any{
+				"channel_id": channelID,
+				"member":     presenceMemberFromClient(c),
+			})
+			for _, peer := range peers {
+				peer.enqueue(leftEnvelope)
+			}
+		}
 	case "chat.ping":
 		c.enqueue(newEnvelope("chat.pong", envelope.RequestID, map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano)}))
 	default:
@@ -230,6 +295,9 @@ func (c *client) writeLoop() {
 }
 
 func (c *client) enqueue(envelope Envelope) {
+	defer func() {
+		_ = recover()
+	}()
 	select {
 	case c.send <- envelope:
 	default:
@@ -238,11 +306,29 @@ func (c *client) enqueue(envelope Envelope) {
 
 func (c *client) close() {
 	c.closeOnce.Do(func() {
-		c.hub.unregister(c)
+		departures := c.hub.unregister(c)
+		member := presenceMemberFromClient(c)
+		for _, departure := range departures {
+			leftEnvelope := newEnvelope("chat.presence.left", "", map[string]any{
+				"channel_id": departure.channelID,
+				"member":     member,
+			})
+			for _, peer := range departure.peers {
+				peer.enqueue(leftEnvelope)
+			}
+		}
 		close(c.closed)
 		close(c.send)
 		_ = c.conn.Close()
 	})
+}
+
+func presenceMemberFromClient(c *client) presenceMember {
+	return presenceMember{
+		ClientID: c.id,
+		UserUID:  c.userUID,
+		DeviceID: c.deviceID,
+	}
 }
 
 func newEnvelope(eventType string, requestID string, payload any) Envelope {
