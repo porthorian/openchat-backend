@@ -1,0 +1,12 @@
+.git
+.gitignore
+.DS_Store
+
+openchatd
+openchat-rtc-joiner
+
+tmp/
+out/
+
+*.log
+*.test
