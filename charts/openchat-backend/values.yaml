@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/openchat/openchat-backend
+  repository: ghcr.io/porthorian/openchat-backendserver
   pullPolicy: IfNotPresent
   tag: ""
 

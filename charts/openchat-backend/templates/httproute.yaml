@@ -50,6 +50,8 @@ spec:
             type: PathPrefix
             value: {{ .Values.gateway.pathPrefix | quote }}
       backendRefs:
-        - name: {{ include "openchat-backend.fullname" . }}
+        - group: ''
+          kind: Service
+          name: {{ include "openchat-backend.fullname" . }}
           port: {{ .Values.service.port }}
 {{- end }}
