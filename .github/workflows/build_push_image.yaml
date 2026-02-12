@@ -7,9 +7,9 @@ jobs:
     name: build-release
     if: github.ref == 'refs/heads/main' || (startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/chart-v'))  
     env:
-      IMAGE_NAME: app
+      IMAGE_NAME: server
       REGISTRY: ghcr.io
-      PACKAGE_PATH: porthorian/medbridge
+      PACKAGE_PATH: porthorian/openchat-backend
       BUILD_VERSION: ${{ github.ref_name }}
     permissions:
       contents: read
