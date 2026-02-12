@@ -58,3 +58,24 @@ go run ./cmd/openchat-rtc-joiner \
 - `GET /v1/client/capabilities`
 - `POST /v1/rtc/channels/:channel_id/join-ticket`
 - `GET /v1/rtc/signaling` (WebSocket)
+
+## Helm Chart
+Chart path:
+- `charts/openchat-backend`
+
+Render locally:
+```bash
+helm template openchat-backend ./charts/openchat-backend
+```
+
+Install/upgrade:
+```bash
+helm upgrade --install openchat-backend ./charts/openchat-backend \
+  --namespace openchat --create-namespace
+```
+
+OCI release flow:
+- Push a git tag matching `chart-vX.X.X`.
+- CI packages and publishes to GHCR as:
+  - `ghcr.io/<owner>/charts/openchat-backend:X.X.X`
+  - `ghcr.io/<owner>/charts/openchat-backend:chart-vX.X.X`

@@ -1,0 +1,77 @@
+name: Publish Helm Chart
+
+on:
+  push:
+    tags:
+      - "chart-v*.*.*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Chart Version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          if ! [[ "${tag}" =~ ^chart-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag '${tag}' is invalid. Expected chart-vX.X.X" >&2
+            exit 1
+          fi
+
+          semver="${tag#chart-v}"
+          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "semver=${semver}" >> "${GITHUB_OUTPUT}"
+          echo "owner=${owner}" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint Chart
+        run: helm lint ./charts/openchat-backend
+
+      - name: Package Chart
+        run: |
+          mkdir -p ./dist
+          helm package ./charts/openchat-backend \
+            --destination ./dist \
+            --version "${{ steps.release.outputs.semver }}" \
+            --app-version "${{ steps.release.outputs.semver }}"
+
+      - name: Login to GHCR (Helm)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" \
+            --password-stdin
+
+      - name: Push Chart (Semver Tag)
+        run: |
+          helm push "./dist/openchat-backend-${{ steps.release.outputs.semver }}.tgz" \
+            "oci://ghcr.io/${{ steps.release.outputs.owner }}/charts"
+
+      - name: Setup ORAS
+        uses: oras-project/setup-oras@v1
+
+      - name: Login to GHCR (ORAS)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io \
+            --username "${{ github.actor }}" \
+            --password-stdin
+
+      - name: Add chart-v OCI Alias
+        run: |
+          oras cp \
+            "ghcr.io/${{ steps.release.outputs.owner }}/charts/openchat-backend:${{ steps.release.outputs.semver }}" \
+            "ghcr.io/${{ steps.release.outputs.owner }}/charts/openchat-backend:${{ steps.release.outputs.tag }}"

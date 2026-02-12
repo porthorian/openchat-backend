@@ -8,4 +8,5 @@
 - `moderation-and-governance.md`: moderation policy, voting, and enforcement design.
 - `webrtc-sfu-backend-design.md`: signaling, SFU, ICE/TURN, and call lifecycle design.
 - `webrtc-test-strategy.md`: contract, integration, load, and chaos testing plan for RTC.
+- `helm-chart-release.md`: chart layout and `chart-vX.X.X` OCI publish flow.
 - `implementation-open-questions.md`: unresolved backend implementation decisions requiring maintainer input.

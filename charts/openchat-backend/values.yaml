@@ -1,0 +1,106 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/openchat/openchat-backend
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+revisionHistoryLimit: 5
+terminationGracePeriodSeconds: 30
+containerPort: 8080
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+
+service:
+  type: ClusterIP
+  port: 8080
+
+gateway:
+  enabled: false
+  annotations: {}
+  labels: {}
+  parentRefs:
+    - name: openchat-gateway
+      namespace: ""
+      sectionName: http
+  hostnames:
+    - openchat.local
+  pathPrefix: /
+  gateway:
+    create: false
+    name: ""
+    className: ""
+    annotations: {}
+    labels: {}
+    listeners:
+      - name: http
+        protocol: HTTP
+        port: 80
+        hostname: openchat.local
+        allowedRoutes:
+          namespaces:
+            from: Same
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: null
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+env:
+  OPENCHAT_HTTP_ADDR: ":8080"
+  OPENCHAT_PUBLIC_BASE_URL: "http://localhost:8080"
+  OPENCHAT_SIGNALING_PATH: "/v1/rtc/signaling"
+  OPENCHAT_JOIN_TICKET_TTL_SECONDS: "60"
+  OPENCHAT_JOIN_TICKET_SECRET: "dev-insecure-secret-change-me"
+  OPENCHAT_ENV: "development"
+
+extraEnv: []
+
+probes:
+  liveness:
+    enabled: true
+    path: /healthz
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 5
+  readiness:
+    enabled: true
+    path: /healthz
+    initialDelaySeconds: 3
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
