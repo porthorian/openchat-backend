@@ -185,6 +185,26 @@ func (h *Hub) unsubscribe(c *client, channelID string) ([]*client, bool) {
 	return peers, true
 }
 
+func (h *Hub) typingPeers(c *client, channelID string) ([]*client, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if _, subscribed := c.subscriptions[channelID]; !subscribed {
+		return nil, false
+	}
+	room := h.subscribersByRoom[channelID]
+	if len(room) == 0 {
+		return nil, true
+	}
+	peers := make([]*client, 0, len(room))
+	for _, peer := range room {
+		if peer.id == c.id {
+			continue
+		}
+		peers = append(peers, peer)
+	}
+	return peers, true
+}
+
 type client struct {
 	id       string
 	userUID  string
@@ -262,6 +282,30 @@ func (c *client) handleEnvelope(envelope Envelope) {
 			for _, peer := range peers {
 				peer.enqueue(leftEnvelope)
 			}
+		}
+	case "chat.typing.update":
+		var payload struct {
+			ChannelID string `json:"channel_id"`
+			IsTyping  bool   `json:"is_typing"`
+		}
+		_ = json.Unmarshal(envelope.Payload, &payload)
+		channelID := strings.TrimSpace(payload.ChannelID)
+		if channelID == "" {
+			c.enqueue(errorEnvelope(envelope.RequestID, "chat_channel_required", "channel_id is required", false))
+			return
+		}
+		peers, subscribed := c.hub.typingPeers(c, channelID)
+		if !subscribed {
+			c.enqueue(errorEnvelope(envelope.RequestID, "chat_not_subscribed", "channel subscription is required", false))
+			return
+		}
+		typingEnvelope := newEnvelope("chat.typing.updated", "", map[string]any{
+			"channel_id": channelID,
+			"member":     presenceMemberFromClient(c),
+			"is_typing":  payload.IsTyping,
+		})
+		for _, peer := range peers {
+			peer.enqueue(typingEnvelope)
 		}
 	case "chat.ping":
 		c.enqueue(newEnvelope("chat.pong", envelope.RequestID, map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano)}))
