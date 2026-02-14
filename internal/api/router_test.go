@@ -50,6 +50,12 @@ func TestCapabilitiesEndpoint(t *testing.T) {
 	if payload["profile"] == nil {
 		t.Fatalf("expected profile payload in capabilities response")
 	}
+	if payload["build_version"] == nil {
+		t.Fatalf("expected build_version in capabilities response")
+	}
+	if payload["build_commit"] == nil {
+		t.Fatalf("expected build_commit in capabilities response")
+	}
 }
 
 func TestServerDirectoryEndpoint(t *testing.T) {

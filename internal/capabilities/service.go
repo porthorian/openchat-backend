@@ -18,6 +18,8 @@ type CapabilitiesResponse struct {
 	ServerName             string                        `json:"server_name"`
 	ServerID               string                        `json:"server_id"`
 	APIVersion             string                        `json:"api_version"`
+	BuildVersion           string                        `json:"build_version"`
+	BuildCommit            string                        `json:"build_commit"`
 	IdentityHandshakeModes []string                      `json:"identity_handshake_modes"`
 	UserUIDPolicy          string                        `json:"user_uid_policy"`
 	ProfileDataPolicy      string                        `json:"profile_data_policy"`
@@ -136,10 +138,13 @@ type ProfileAvatarUploadRulesResponse struct {
 
 func (s *Service) Build() CapabilitiesResponse {
 	turnExpiry := time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339)
+	build := app.CurrentBuildInfo()
 	return CapabilitiesResponse{
 		ServerName:             "OpenChat Harbor",
 		ServerID:               "srv_harbor",
 		APIVersion:             "2026-02-14",
+		BuildVersion:           build.Version,
+		BuildCommit:            build.Commit,
 		IdentityHandshakeModes: []string{"challenge_signature", "token_proof"},
 		UserUIDPolicy:          "server_scoped",
 		ProfileDataPolicy:      "uid_only",
