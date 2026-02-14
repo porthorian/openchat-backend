@@ -27,6 +27,7 @@ type CapabilitiesResponse struct {
 	Security               SecurityCapabilitiesResponse  `json:"security"`
 	RTC                    *RTCCapabilitiesResponse      `json:"rtc,omitempty"`
 	Moderation             *ModerationCapabilities       `json:"moderation,omitempty"`
+	Profile                *ProfileCapabilitiesResponse  `json:"profile,omitempty"`
 }
 
 type TransportCapabilitiesResponse struct {
@@ -109,12 +110,36 @@ type ModerationEvidencePolicy struct {
 	PlaintextDisclosureOptional bool `json:"plaintext_disclosure_optional"`
 }
 
+type ProfileCapabilitiesResponse struct {
+	Enabled                  bool                              `json:"enabled"`
+	Scope                    string                            `json:"scope"`
+	Fields                   []string                          `json:"fields"`
+	AvatarModes              []string                          `json:"avatar_modes"`
+	DisplayName              ProfileDisplayNameRulesResponse   `json:"display_name"`
+	AvatarUpload             *ProfileAvatarUploadRulesResponse `json:"avatar_upload,omitempty"`
+	RealtimeEvent            string                            `json:"realtime_event"`
+	MessageAuthorProfileMode string                            `json:"message_author_profile_mode"`
+}
+
+type ProfileDisplayNameRulesResponse struct {
+	MinLength int    `json:"min_length"`
+	MaxLength int    `json:"max_length"`
+	Pattern   string `json:"pattern,omitempty"`
+}
+
+type ProfileAvatarUploadRulesResponse struct {
+	MaxBytes  int      `json:"max_bytes"`
+	MimeTypes []string `json:"mime_types"`
+	MaxWidth  int      `json:"max_width"`
+	MaxHeight int      `json:"max_height"`
+}
+
 func (s *Service) Build() CapabilitiesResponse {
 	turnExpiry := time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339)
 	return CapabilitiesResponse{
 		ServerName:             "OpenChat Harbor",
 		ServerID:               "srv_harbor",
-		APIVersion:             "2026-02-11",
+		APIVersion:             "2026-02-14",
 		IdentityHandshakeModes: []string{"challenge_signature", "token_proof"},
 		UserUIDPolicy:          "server_scoped",
 		ProfileDataPolicy:      "uid_only",
@@ -184,6 +209,24 @@ func (s *Service) Build() CapabilitiesResponse {
 				ReportBundleRequired:        true,
 				PlaintextDisclosureOptional: true,
 			},
+		},
+		Profile: &ProfileCapabilitiesResponse{
+			Enabled:     true,
+			Scope:       "global",
+			Fields:      []string{"display_name", "avatar"},
+			AvatarModes: []string{"generated", "uploaded"},
+			DisplayName: ProfileDisplayNameRulesResponse{
+				MinLength: 2,
+				MaxLength: 32,
+			},
+			AvatarUpload: &ProfileAvatarUploadRulesResponse{
+				MaxBytes:  2 * 1024 * 1024,
+				MimeTypes: []string{"image/png", "image/jpeg"},
+				MaxWidth:  1024,
+				MaxHeight: 1024,
+			},
+			RealtimeEvent:            "profile_updated",
+			MessageAuthorProfileMode: "snapshot",
 		},
 	}
 }

@@ -47,6 +47,9 @@ func TestCapabilitiesEndpoint(t *testing.T) {
 	if payload["rtc"] == nil {
 		t.Fatalf("expected rtc payload in capabilities response")
 	}
+	if payload["profile"] == nil {
+		t.Fatalf("expected profile payload in capabilities response")
+	}
 }
 
 func TestServerDirectoryEndpoint(t *testing.T) {

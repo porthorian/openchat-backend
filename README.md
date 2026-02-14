@@ -56,6 +56,11 @@ go run ./cmd/openchat-rtc-joiner \
 ## Implemented Endpoints (Current)
 - `GET /healthz`
 - `GET /v1/client/capabilities`
+- `GET /v1/profile/me`
+- `PUT /v1/profile/me`
+- `POST /v1/profile/avatar`
+- `GET /v1/profile/avatar/{assetID}`
+- `GET /v1/profiles:batch`
 - `POST /v1/rtc/channels/:channel_id/join-ticket`
 - `GET /v1/rtc/signaling` (WebSocket)
 

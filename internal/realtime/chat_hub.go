@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/openchat/openchat-backend/internal/chat"
+	"github.com/openchat/openchat-backend/internal/profile"
 )
 
 type Envelope struct {
@@ -102,6 +103,33 @@ func (h *Hub) BroadcastMessage(message chat.Message) {
 	envelope := newEnvelope("chat.message.created", "", map[string]any{"message": message})
 	for _, client := range room {
 		client.enqueue(envelope)
+	}
+}
+
+func (h *Hub) BroadcastProfileUpdated(updated profile.CanonicalProfile) {
+	h.mu.RLock()
+	clients := make([]*client, 0, len(h.clientsByID))
+	for _, c := range h.clientsByID {
+		clients = append(clients, c)
+	}
+	h.mu.RUnlock()
+	if len(clients) == 0 {
+		return
+	}
+
+	envelope := newEnvelope("profile_updated", "", map[string]any{
+		"user_uid":         updated.UserUID,
+		"profile_version":  updated.ProfileVersion,
+		"display_name":     updated.DisplayName,
+		"avatar_mode":      updated.AvatarMode,
+		"avatar_preset_id": updated.AvatarPresetID,
+		"avatar_asset_id":  updated.AvatarAssetID,
+		"avatar_url":       updated.AvatarURL,
+		"updated_at":       updated.UpdatedAt,
+	})
+
+	for _, c := range clients {
+		c.enqueue(envelope)
 	}
 }
 
