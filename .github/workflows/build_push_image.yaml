@@ -5,32 +5,53 @@ on: [push]
 jobs:
   build_push:
     name: build-release
-    if: github.ref == 'refs/heads/main' || (startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/chart-v'))  
+    if: github.ref == 'refs/heads/main' || (startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/chart-v'))
     env:
       IMAGE_NAME: server
       REGISTRY: ghcr.io
       PACKAGE_PATH: porthorian/openchat-backend
       BUILD_VERSION: ${{ github.ref_name }}
+      BUILD_COMMIT: ${{ github.sha }}
     permissions:
       contents: read
       packages: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run Tests
+        run: go test ./...
+
+      - name: Resolve Build Time
+        run: |
+          echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
       - name: Login to Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set Tag
         run: |
           echo "TAG=${{ env.REGISTRY }}/${{ env.PACKAGE_PATH }}/${{ env.IMAGE_NAME }}:${{ env.BUILD_VERSION }}" >> $GITHUB_ENV
+
       - name: Build Image
         run: |
           docker build \
+          --build-arg BUILD_VERSION=${{ env.BUILD_VERSION }} \
+          --build-arg BUILD_COMMIT=${{ env.BUILD_COMMIT }} \
+          --build-arg BUILD_TIME=${{ env.BUILD_TIME }} \
           --tag ${{ env.TAG }} \
           .
+
       - name: Publish Image
         run: |
           docker push ${{ env.TAG }}
