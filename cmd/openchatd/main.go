@@ -15,6 +15,7 @@ import (
 
 func main() {
 	cfg := app.LoadConfigFromEnv()
+	build := app.CurrentBuildInfo()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	httpServer := &http.Server{
@@ -26,7 +27,15 @@ func main() {
 	}
 
 	go func() {
-		logger.Info("openchat-backend starting", "addr", cfg.HTTPAddr)
+		logger.Info(
+			"openchat-backend starting",
+			"addr", cfg.HTTPAddr,
+			"version", build.Version,
+			"commit", build.Commit,
+			"commit_short", build.CommitShort,
+			"build_time", build.BuildTime,
+			"vcs_modified", build.VCSModified,
+		)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("http server failed", "error", err)
 			os.Exit(1)

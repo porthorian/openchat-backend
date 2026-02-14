@@ -12,8 +12,14 @@ COPY . .
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-  go build -trimpath -ldflags="-s -w" -o /out/openchatd ./cmd/openchatd
+ARG BUILD_VERSION=main
+ARG BUILD_COMMIT
+ARG BUILD_TIME=unknown
+RUN test -n "${BUILD_COMMIT}" && \
+  CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+  go build -trimpath \
+  -ldflags="-s -w -X github.com/openchat/openchat-backend/internal/app.BuildVersion=${BUILD_VERSION} -X github.com/openchat/openchat-backend/internal/app.BuildCommit=${BUILD_COMMIT} -X github.com/openchat/openchat-backend/internal/app.BuildTime=${BUILD_TIME}" \
+  -o /out/openchatd ./cmd/openchatd
 
 FROM alpine:3.23
 

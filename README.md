@@ -22,6 +22,25 @@ go run ./cmd/openchatd
 
 Default address: `:8080`
 
+On startup, the server logs build metadata:
+- `version`
+- `commit`
+- `build_time`
+- `vcs_modified`
+
+## Docker Build (With Commit Metadata)
+Docker builds now require a commit hash so runtime startup logs always reference the build commit.
+
+```bash
+docker build \
+  --build-arg BUILD_VERSION=main \
+  --build-arg BUILD_COMMIT=$(git rev-parse --verify HEAD) \
+  --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  -t openchat-backend:dev .
+```
+
+For tagged builds, set `BUILD_VERSION` to the tag value you publish (for example `v1.2.3`).
+
 ## RTC Joiner (Audio Stream Test Tool)
 Start a signaling client that joins a voice channel and streams audio over `rtc.media.state`.
 Default mode (`pcm-frames`) decodes source audio to 48k mono PCM frames (via `ffmpeg`) for real-time-ish playback in the Electron client.
