@@ -1,5 +1,9 @@
 # Backend Architecture Docs
 
+## Status
+- Maturity: `Pre-Alpha`
+- Stability expectation: architecture plans and contracts may evolve before Beta.
+
 ## Documents
 - `e2ee-epoch-model.md`: channel encryption and membership-epoch rules.
 - `client-search-model.md`: search design with E2EE constraints.

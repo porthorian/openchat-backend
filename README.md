@@ -3,7 +3,8 @@
 Backend service for decentralized OpenChat server instances.
 
 ## Status
-Early implementation stage.
+- Project maturity: `Pre-Alpha`
+- Stability expectation: interfaces and behavior may change without backward compatibility until Beta.
 
 ## Current Focus
 - E2EE-compatible channel message architecture.
