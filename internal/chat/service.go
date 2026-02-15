@@ -67,6 +67,7 @@ type Service struct {
 	messagesByChannel     map[string][]Message
 	channelServerByID     map[string]string
 	channelTypeByID       map[string]ChannelType
+	leftServersByUser     map[string]map[string]time.Time
 
 	broadcaster MessageBroadcaster
 }
@@ -79,6 +80,7 @@ func NewService() *Service {
 		messagesByChannel:     seedMessages(),
 		channelServerByID:     make(map[string]string),
 		channelTypeByID:       make(map[string]ChannelType),
+		leftServersByUser:     make(map[string]map[string]time.Time),
 	}
 	svc.indexChannels()
 	return svc
@@ -89,6 +91,24 @@ func (s *Service) ListServers() []ServerDirectoryEntry {
 	defer s.mu.RUnlock()
 	servers := make([]ServerDirectoryEntry, len(s.servers))
 	copy(servers, s.servers)
+	return servers
+}
+
+func (s *Service) ListServersForUser(userUID string) []ServerDirectoryEntry {
+	userUID = strings.TrimSpace(userUID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	servers := make([]ServerDirectoryEntry, 0, len(s.servers))
+	leftByServerID := s.leftServersByUser[userUID]
+	for _, server := range s.servers {
+		if leftByServerID != nil {
+			if _, left := leftByServerID[server.ServerID]; left {
+				continue
+			}
+		}
+		servers = append(servers, server)
+	}
 	return servers
 }
 
@@ -191,6 +211,32 @@ func (s *Service) IsVoiceChannel(channelID string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.channelTypeByID[channelID] == ChannelTypeVoice
+}
+
+func (s *Service) LeaveServer(serverID string, userUID string) error {
+	serverID = strings.TrimSpace(serverID)
+	userUID = strings.TrimSpace(userUID)
+	if serverID == "" {
+		return errors.New("server id is required")
+	}
+	if userUID == "" {
+		return errors.New("user uid is required")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.channelGroupsByServer[serverID]; !ok {
+		return fmt.Errorf("unknown server id: %s", serverID)
+	}
+
+	leftByServerID := s.leftServersByUser[userUID]
+	if leftByServerID == nil {
+		leftByServerID = make(map[string]time.Time)
+		s.leftServersByUser[userUID] = leftByServerID
+	}
+	leftByServerID[serverID] = time.Now().UTC()
+	return nil
 }
 
 func (s *Service) indexChannels() {

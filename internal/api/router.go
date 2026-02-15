@@ -67,7 +67,9 @@ func (s *Server) Router() http.Handler {
 		v1.Get("/client/capabilities", s.getCapabilities)
 		v1.Get("/rtc/signaling", s.signalingWS)
 		v1.Get("/realtime", s.realtimeWS)
-		v1.Get("/servers", s.listServers)
+		v1.With(func(next http.Handler) http.Handler {
+			return withRequesterContext(next, false)
+		}).Get("/servers", s.listServers)
 
 		v1.Get("/servers/{serverID}/channels", s.listChannelGroups)
 		v1.Get("/servers/{serverID}/members", s.listMembers)
@@ -80,6 +82,7 @@ func (s *Server) Router() http.Handler {
 			})
 			authed.Post("/rtc/channels/{channelID}/join-ticket", s.issueJoinTicket)
 			authed.Post("/channels/{channelID}/messages", s.createMessage)
+			authed.Delete("/servers/{serverID}/membership", s.leaveServerMembership)
 			authed.Get("/profile/me", s.getMyProfile)
 			authed.Put("/profile/me", s.updateMyProfile)
 			authed.Post("/profile/avatar", s.uploadProfileAvatar)

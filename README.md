@@ -76,6 +76,8 @@ go run ./cmd/openchat-rtc-joiner \
 ## Implemented Endpoints (Current)
 - `GET /healthz`
 - `GET /v1/client/capabilities`
+- `GET /v1/servers` (requester-scoped when identity headers are present)
+- `DELETE /v1/servers/:server_id/membership`
 - `GET /v1/profile/me`
 - `PUT /v1/profile/me`
 - `POST /v1/profile/avatar`
