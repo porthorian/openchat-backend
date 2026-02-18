@@ -1,8 +1,16 @@
 package chat
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"net/http"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -38,11 +46,28 @@ type Member struct {
 }
 
 type Message struct {
-	ID        string `json:"id"`
-	ChannelID string `json:"channel_id"`
-	AuthorUID string `json:"author_uid"`
-	Body      string `json:"body"`
-	CreatedAt string `json:"created_at"`
+	ID          string              `json:"id"`
+	ChannelID   string              `json:"channel_id"`
+	AuthorUID   string              `json:"author_uid"`
+	Body        string              `json:"body"`
+	CreatedAt   string              `json:"created_at"`
+	Attachments []MessageAttachment `json:"attachments,omitempty"`
+}
+
+type MessageAttachment struct {
+	AttachmentID string `json:"attachment_id"`
+	FileName     string `json:"file_name"`
+	URL          string `json:"url"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	ContentType  string `json:"content_type"`
+	Bytes        int    `json:"bytes"`
+}
+
+type AttachmentUploadInput struct {
+	FileName    string
+	ContentType string
+	Data        []byte
 }
 
 type ServerDirectoryEntry struct {
@@ -61,26 +86,57 @@ type MessageBroadcaster interface {
 type Service struct {
 	mu sync.RWMutex
 
+	publicBaseURL string
+
 	servers               []ServerDirectoryEntry
 	channelGroupsByServer map[string][]ChannelGroup
 	membersByServer       map[string][]Member
 	messagesByChannel     map[string][]Message
+	attachmentsByID       map[string]attachmentBlob
 	channelServerByID     map[string]string
 	channelTypeByID       map[string]ChannelType
 	leftServersByUser     map[string]map[string]time.Time
 
+	maxAttachmentBytes       int
+	maxAttachmentsPerMessage int
+	allowedAttachmentTypes   map[string]struct{}
+
 	broadcaster MessageBroadcaster
 }
 
-func NewService() *Service {
+type attachmentBlob struct {
+	metadata  MessageAttachment
+	channelID string
+	content   []byte
+}
+
+var (
+	ErrMessageEmpty              = errors.New("message body or attachment is required")
+	ErrAttachmentTooLarge        = errors.New("attachment exceeds max upload size")
+	ErrAttachmentTypeUnsupported = errors.New("attachment mime type is unsupported")
+	ErrAttachmentImageInvalid    = errors.New("attachment image payload is invalid")
+	ErrTooManyAttachments        = errors.New("too many attachments")
+	ErrAttachmentNotFound        = errors.New("attachment not found")
+)
+
+func NewService(publicBaseURL string) *Service {
 	svc := &Service{
-		servers:               seedServerDirectory(),
-		channelGroupsByServer: seedChannelGroups(),
-		membersByServer:       seedMembers(),
-		messagesByChannel:     seedMessages(),
-		channelServerByID:     make(map[string]string),
-		channelTypeByID:       make(map[string]ChannelType),
-		leftServersByUser:     make(map[string]map[string]time.Time),
+		publicBaseURL:            strings.TrimSuffix(strings.TrimSpace(publicBaseURL), "/"),
+		servers:                  seedServerDirectory(),
+		channelGroupsByServer:    seedChannelGroups(),
+		membersByServer:          seedMembers(),
+		messagesByChannel:        seedMessages(),
+		attachmentsByID:          make(map[string]attachmentBlob),
+		channelServerByID:        make(map[string]string),
+		channelTypeByID:          make(map[string]ChannelType),
+		leftServersByUser:        make(map[string]map[string]time.Time),
+		maxAttachmentBytes:       10 * 1024 * 1024,
+		maxAttachmentsPerMessage: 4,
+		allowedAttachmentTypes: map[string]struct{}{
+			"image/png":  {},
+			"image/jpeg": {},
+			"image/gif":  {},
+		},
 	}
 	svc.indexChannels()
 	return svc
@@ -154,16 +210,23 @@ func (s *Service) ListMessages(channelID string, limit int) ([]Message, error) {
 	if start < 0 {
 		start = 0
 	}
-	cloned := make([]Message, len(messages[start:]))
-	copy(cloned, messages[start:])
-	return cloned, nil
+	return cloneMessages(messages[start:]), nil
 }
 
-func (s *Service) CreateMessage(channelID string, authorUID string, body string) (Message, error) {
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return Message{}, errors.New("message body is required")
+func (s *Service) AttachmentUploadRules() (maxBytes int, maxFiles int, mimeTypes []string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	mimeTypes = make([]string, 0, len(s.allowedAttachmentTypes))
+	for mime := range s.allowedAttachmentTypes {
+		mimeTypes = append(mimeTypes, mime)
 	}
+	sort.Strings(mimeTypes)
+	return s.maxAttachmentBytes, s.maxAttachmentsPerMessage, mimeTypes
+}
+
+func (s *Service) CreateMessage(channelID string, authorUID string, body string, uploads []AttachmentUploadInput) (Message, error) {
+	body = strings.TrimSpace(body)
 
 	s.mu.Lock()
 	channelType, ok := s.channelTypeByID[channelID]
@@ -175,22 +238,98 @@ func (s *Service) CreateMessage(channelID string, authorUID string, body string)
 		s.mu.Unlock()
 		return Message{}, errors.New("messages can only be sent to text channels")
 	}
+	if len(uploads) > s.maxAttachmentsPerMessage {
+		s.mu.Unlock()
+		return Message{}, ErrTooManyAttachments
+	}
+
+	attachments := make([]MessageAttachment, 0, len(uploads))
+	for _, upload := range uploads {
+		attachment, content, err := s.buildAttachment(channelID, upload)
+		if err != nil {
+			s.mu.Unlock()
+			return Message{}, err
+		}
+		s.attachmentsByID[attachment.AttachmentID] = attachmentBlob{
+			metadata:  attachment,
+			channelID: channelID,
+			content:   content,
+		}
+		attachments = append(attachments, attachment)
+	}
+
+	if body == "" && len(attachments) == 0 {
+		s.mu.Unlock()
+		return Message{}, ErrMessageEmpty
+	}
 
 	message := Message{
-		ID:        "msg_" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""),
-		ChannelID: channelID,
-		AuthorUID: authorUID,
-		Body:      body,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		ID:          "msg_" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""),
+		ChannelID:   channelID,
+		AuthorUID:   authorUID,
+		Body:        body,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		Attachments: attachments,
 	}
-	s.messagesByChannel[channelID] = append(s.messagesByChannel[channelID], message)
+	s.messagesByChannel[channelID] = append(s.messagesByChannel[channelID], cloneMessage(message))
 	broadcaster := s.broadcaster
+	broadcastMessage := cloneMessage(message)
 	s.mu.Unlock()
 
 	if broadcaster != nil {
-		broadcaster.BroadcastMessage(message)
+		broadcaster.BroadcastMessage(broadcastMessage)
 	}
-	return message, nil
+	return cloneMessage(message), nil
+}
+
+func (s *Service) AttachmentContent(channelID string, attachmentID string) (MessageAttachment, []byte, error) {
+	channelID = strings.TrimSpace(channelID)
+	attachmentID = strings.TrimSpace(attachmentID)
+	if channelID == "" || attachmentID == "" {
+		return MessageAttachment{}, nil, ErrAttachmentNotFound
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	blob, ok := s.attachmentsByID[attachmentID]
+	if !ok || blob.channelID != channelID {
+		return MessageAttachment{}, nil, ErrAttachmentNotFound
+	}
+	return cloneMessageAttachment(blob.metadata), append([]byte(nil), blob.content...), nil
+}
+
+func (s *Service) buildAttachment(channelID string, upload AttachmentUploadInput) (MessageAttachment, []byte, error) {
+	content := upload.Data
+	if len(content) == 0 {
+		return MessageAttachment{}, nil, ErrAttachmentImageInvalid
+	}
+	if len(content) > s.maxAttachmentBytes {
+		return MessageAttachment{}, nil, ErrAttachmentTooLarge
+	}
+
+	contentType := normalizeAttachmentContentType(upload.ContentType, content)
+	if _, ok := s.allowedAttachmentTypes[contentType]; !ok {
+		return MessageAttachment{}, nil, ErrAttachmentTypeUnsupported
+	}
+
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(content))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return MessageAttachment{}, nil, ErrAttachmentImageInvalid
+	}
+
+	attachmentID := "att_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
+	attachment := MessageAttachment{
+		AttachmentID: attachmentID,
+		FileName:     normalizeAttachmentFileName(upload.FileName, contentType),
+		URL:          s.attachmentURL(channelID, attachmentID),
+		Width:        cfg.Width,
+		Height:       cfg.Height,
+		ContentType:  contentType,
+		Bytes:        len(content),
+	}
+
+	return attachment, append([]byte(nil), content...), nil
 }
 
 func (s *Service) ServerExists(serverID string) bool {
@@ -263,6 +402,69 @@ func cloneGroups(groups []ChannelGroup) []ChannelGroup {
 		}
 	}
 	return out
+}
+
+func cloneMessages(messages []Message) []Message {
+	out := make([]Message, len(messages))
+	for idx, message := range messages {
+		out[idx] = cloneMessage(message)
+	}
+	return out
+}
+
+func cloneMessage(message Message) Message {
+	out := message
+	if len(message.Attachments) > 0 {
+		out.Attachments = make([]MessageAttachment, len(message.Attachments))
+		for idx, attachment := range message.Attachments {
+			out.Attachments[idx] = cloneMessageAttachment(attachment)
+		}
+	}
+	return out
+}
+
+func cloneMessageAttachment(attachment MessageAttachment) MessageAttachment {
+	return attachment
+}
+
+func (s *Service) attachmentURL(channelID string, attachmentID string) string {
+	path := fmt.Sprintf("/v1/channels/%s/attachments/%s", channelID, attachmentID)
+	if s.publicBaseURL == "" {
+		return path
+	}
+	return s.publicBaseURL + path
+}
+
+func normalizeAttachmentContentType(contentType string, body []byte) string {
+	contentType = strings.TrimSpace(strings.ToLower(contentType))
+	if contentType != "" {
+		if idx := strings.Index(contentType, ";"); idx >= 0 {
+			contentType = strings.TrimSpace(contentType[:idx])
+		}
+	}
+	if len(body) > 0 {
+		detected := strings.ToLower(http.DetectContentType(body))
+		if contentType == "" || contentType == "application/octet-stream" {
+			contentType = detected
+		}
+	}
+	return contentType
+}
+
+func normalizeAttachmentFileName(fileName string, contentType string) string {
+	trimmed := strings.TrimSpace(fileName)
+	if trimmed != "" {
+		return filepath.Base(trimmed)
+	}
+
+	switch contentType {
+	case "image/jpeg":
+		return "image.jpg"
+	case "image/gif":
+		return "image.gif"
+	default:
+		return "image.png"
+	}
 }
 
 func seedServerDirectory() []ServerDirectoryEntry {

@@ -29,7 +29,7 @@ func NewServer(cfg app.Config, logger *slog.Logger) *Server {
 	capSvc := capabilities.NewService(cfg)
 	tokens := rtc.NewTokenService(cfg.TicketSecret, cfg.TicketTTL)
 	signaling := rtc.NewSignalingService(logger, tokens)
-	chatService := chat.NewService()
+	chatService := chat.NewService(cfg.PublicBaseURL)
 	realtimeHub := realtime.NewHub(logger)
 	chatService.SetBroadcaster(realtimeHub)
 
@@ -74,6 +74,7 @@ func (s *Server) Router() http.Handler {
 		v1.Get("/servers/{serverID}/channels", s.listChannelGroups)
 		v1.Get("/servers/{serverID}/members", s.listMembers)
 		v1.Get("/channels/{channelID}/messages", s.listMessages)
+		v1.Get("/channels/{channelID}/attachments/{attachmentID}", s.getMessageAttachment)
 		v1.Get("/profile/avatar/{assetID}", s.getProfileAvatar)
 
 		v1.Group(func(authed chi.Router) {
