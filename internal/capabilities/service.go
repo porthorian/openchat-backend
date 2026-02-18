@@ -173,7 +173,7 @@ func (s *Service) Build() CapabilitiesResponse {
 			ProtocolVersion:    "1.0",
 			SignalingURL:       s.cfg.SignalingURL(),
 			SignalingTransport: "websocket",
-			Topologies:         []string{"sfu"},
+			Topologies:         []string{"p2p"},
 			Features: RTCFeatureFlagsResponse{
 				Voice:       true,
 				Video:       true,

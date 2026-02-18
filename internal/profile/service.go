@@ -94,9 +94,11 @@ type avatarBlob struct {
 	content  []byte
 }
 
+var defaultPresets = []string{"horizon", "reef", "mint", "ember", "violet", "slate"}
+
 func NewService(publicBaseURL string, serverID string) *Service {
 	presets := map[string]struct{}{}
-	for _, preset := range []string{"preset_01", "preset_02", "preset_03", "preset_04", "preset_05", "preset_06"} {
+	for _, preset := range defaultPresets {
 		presets[preset] = struct{}{}
 	}
 
@@ -366,12 +368,11 @@ func strPtr(value string) *string {
 }
 
 func defaultPresetForUID(userUID string) string {
-	choices := []string{"preset_01", "preset_02", "preset_03", "preset_04", "preset_05", "preset_06"}
 	sum := 0
 	for _, r := range userUID {
 		sum += int(r)
 	}
-	return choices[sum%len(choices)]
+	return defaultPresets[sum%len(defaultPresets)]
 }
 
 func defaultDisplayName(userUID string) string {

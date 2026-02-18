@@ -157,12 +157,48 @@ func (c *wsClient) handleEnvelope(envelope Envelope) {
 	case "rtc.leave":
 		c.closeConnection()
 	case "rtc.media.state":
-		c.relayToRoom("rtc.media.state", envelope)
+		c.relayMediaState(envelope)
 	case "rtc.offer.publish", "rtc.offer.subscribe", "rtc.answer.publish", "rtc.answer.subscribe", "rtc.ice.candidate":
 		c.forwardSignal(envelope)
 	default:
 		c.sendError(envelope.RequestID, "rtc_unknown_event", "unsupported signaling event type", false)
 	}
+}
+
+func (c *wsClient) relayMediaState(envelope Envelope) {
+	var payload map[string]any
+	if len(envelope.Payload) > 0 {
+		_ = json.Unmarshal(envelope.Payload, &payload)
+	}
+	if payload == nil {
+		payload = make(map[string]any)
+	}
+
+	streamKind, _ := payload["stream_kind"].(string)
+	streamKind = strings.TrimSpace(streamKind)
+	switch streamKind {
+	case "":
+		// Presence-only media state updates are allowed without stream checks.
+	case "video_camera":
+		if !c.participant.Permissions.Video {
+			c.sendError(envelope.RequestID, "rtc_media_denied", "participant is not allowed to publish camera video", false)
+			return
+		}
+	case "video_screen":
+		if !c.participant.Permissions.Screenshare {
+			c.sendError(envelope.RequestID, "rtc_media_denied", "participant is not allowed to publish screen share", false)
+			return
+		}
+	default:
+		if strings.HasPrefix(streamKind, "audio") && !c.participant.Permissions.Speak {
+			c.sendError(envelope.RequestID, "rtc_media_denied", "participant is not allowed to publish audio", false)
+			return
+		}
+	}
+
+	payload["participant_id"] = c.participant.ParticipantID
+	payload["user_uid"] = c.participant.UserUID
+	c.service.rooms.broadcast(c.participant.ChannelID, NewEnvelope("rtc.media.state", c.participant.ChannelID, envelope.RequestID, payload), "")
 }
 
 func (c *wsClient) forwardSignal(envelope Envelope) {
