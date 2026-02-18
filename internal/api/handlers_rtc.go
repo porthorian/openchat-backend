@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -96,15 +95,4 @@ func (s *Server) issueJoinTicket(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) signalingWS(w http.ResponseWriter, r *http.Request) {
 	s.signaling.ServeWS(w, r)
-}
-
-func mapRTCTicketError(err error) (status int, code string, message string, retryable bool) {
-	switch {
-	case errors.Is(err, rtc.ErrExpiredTicket):
-		return http.StatusUnauthorized, "rtc_ticket_expired", "join ticket expired", true
-	case errors.Is(err, rtc.ErrReplayTicket):
-		return http.StatusUnauthorized, "rtc_ticket_replayed", "join ticket already consumed", true
-	default:
-		return http.StatusUnauthorized, "rtc_ticket_invalid", "invalid join ticket", false
-	}
 }
