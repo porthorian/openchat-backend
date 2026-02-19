@@ -1,0 +1,67 @@
+{
+  "lexicon": 1,
+  "id": "com.pennyos.openchat.server.channel.member",
+  "defs": {
+    "main": {
+      "type": "object",
+      "description": "OpenChat member presence entry.",
+      "required": [
+        "id",
+        "name",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "status": {
+          "type": "ref",
+          "ref": "#presenceStatus"
+        }
+      }
+    },
+    "listResponse": {
+      "type": "object",
+      "required": [
+        "serverId",
+        "members"
+      ],
+      "properties": {
+        "serverId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "channelId": {
+          "type": "string",
+          "description": "Optional channel scope for future per-channel member listings.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#main"
+          }
+        }
+      }
+    },
+    "presenceStatus": {
+      "type": "string",
+      "knownValues": [
+        "online",
+        "idle",
+        "dnd",
+        "offline"
+      ]
+    }
+  }
+}

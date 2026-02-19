@@ -1,0 +1,138 @@
+{
+  "lexicon": 1,
+  "id": "com.pennyos.openchat.message",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "OpenChat channel message record. Matches the currently implemented chat message model.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "channelId",
+          "authorUid",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Server-generated message identifier (for compatibility with existing REST responses).",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "channelId": {
+            "type": "string",
+            "description": "Channel identifier where this message was sent.",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "authorUid": {
+            "type": "string",
+            "description": "Author UID as used by the current OpenChat backend identity layer.",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "body": {
+            "type": "string",
+            "description": "Plaintext message body. Can be empty only when attachments are present.",
+            "maxLength": 65536,
+            "maxGraphemes": 65536
+          },
+          "bodyFacets": {
+            "type": "array",
+            "description": "Rich-text facets for mentions/links in the body.",
+            "items": {
+              "type": "ref",
+              "ref": "app.bsky.richtext.facet"
+            },
+            "maxLength": 256
+          },
+          "attachments": {
+            "type": "array",
+            "description": "Image attachments currently supported by OpenChat.",
+            "items": {
+              "type": "ref",
+              "ref": "#messageAttachment"
+            },
+            "maxLength": 4
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "labels": {
+            "type": "union",
+            "refs": [
+              "com.atproto.label.defs#selfLabels"
+            ]
+          }
+        }
+      }
+    },
+    "messageAttachment": {
+      "type": "object",
+      "description": "Attachment metadata for a message.",
+      "required": [
+        "attachmentId",
+        "fileName",
+        "contentType",
+        "bytes",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Optional HTTP URL exposed by the current backend attachment endpoint."
+        },
+        "contentType": {
+          "type": "ref",
+          "ref": "#messageAttachmentContentType"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 52428800
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "image": {
+          "type": "blob",
+          "description": "Image content stored directly in an AT Protocol repository record.",
+          "accept": [
+            "image/png",
+            "image/jpeg",
+            "image/gif"
+          ],
+          "maxSize": 52428800
+        }
+      }
+    },
+    "messageAttachmentContentType": {
+      "type": "string",
+      "description": "Currently supported attachment mime types in OpenChat.",
+      "knownValues": [
+        "image/png",
+        "image/jpeg",
+        "image/gif"
+      ]
+    }
+  }
+}

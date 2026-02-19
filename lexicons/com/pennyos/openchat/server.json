@@ -1,0 +1,96 @@
+{
+  "lexicon": 1,
+  "id": "com.pennyos.openchat.server",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "OpenChat server directory entry.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "serverId",
+          "displayName",
+          "trustState",
+          "identityHandshakeStrategy",
+          "userIdentifierPolicy"
+        ],
+        "properties": {
+          "serverId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "iconText": {
+            "type": "string",
+            "maxLength": 8,
+            "maxGraphemes": 8
+          },
+          "trustState": {
+            "type": "ref",
+            "ref": "#trustState"
+          },
+          "identityHandshakeStrategy": {
+            "type": "ref",
+            "ref": "#identityHandshakeStrategy"
+          },
+          "userIdentifierPolicy": {
+            "type": "ref",
+            "ref": "#userIdentifierPolicy"
+          },
+          "channels": {
+            "type": "ref",
+            "ref": "com.pennyos.openchat.server.channel#groupsResponse"
+          },
+          "labels": {
+            "type": "union",
+            "refs": [
+              "com.atproto.label.defs#selfLabels"
+            ]
+          }
+        }
+      }
+    },
+    "listResponse": {
+      "type": "object",
+      "required": [
+        "servers"
+      ],
+      "properties": {
+        "servers": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#main"
+          }
+        }
+      }
+    },
+    "trustState": {
+      "type": "string",
+      "knownValues": [
+        "verified",
+        "unverified"
+      ]
+    },
+    "identityHandshakeStrategy": {
+      "type": "string",
+      "knownValues": [
+        "challenge_signature",
+        "token_proof"
+      ]
+    },
+    "userIdentifierPolicy": {
+      "type": "string",
+      "knownValues": [
+        "server_scoped",
+        "global"
+      ]
+    }
+  }
+}

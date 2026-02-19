@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "com.pennyos.openchat",
+  "defs": {
+    "main": {
+      "type": "object",
+      "description": "Namespace entrypoint for OpenChat lexicons.",
+      "properties": {
+        "profile": {
+          "type": "ref",
+          "ref": "com.pennyos.openchat.profile#main"
+        },
+        "message": {
+          "type": "ref",
+          "ref": "com.pennyos.openchat.message#main"
+        },
+        "server": {
+          "type": "ref",
+          "ref": "com.pennyos.openchat.server#main"
+        },
+        "serverChannel": {
+          "type": "ref",
+          "ref": "com.pennyos.openchat.server.channel#main"
+        },
+        "serverChannelMember": {
+          "type": "ref",
+          "ref": "com.pennyos.openchat.server.channel.member#main"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "lexicon": 1,
+  "id": "com.pennyos.openchat.server.channel",
+  "defs": {
+    "main": {
+      "type": "object",
+      "description": "OpenChat channel entry within a server channel group.",
+      "required": [
+        "id",
+        "name",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "type": {
+          "type": "ref",
+          "ref": "#channelType"
+        },
+        "unreadCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "members": {
+          "type": "array",
+          "description": "Optional expanded members for this channel.",
+          "items": {
+            "type": "ref",
+            "ref": "com.pennyos.openchat.server.channel.member#main"
+          }
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "description": "A channel group for one server.",
+      "required": [
+        "id",
+        "label",
+        "kind",
+        "channels"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "kind": {
+          "type": "ref",
+          "ref": "#groupKind"
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#main"
+          }
+        }
+      }
+    },
+    "groupsResponse": {
+      "type": "object",
+      "required": [
+        "serverId",
+        "groups"
+      ],
+      "properties": {
+        "serverId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#group"
+          }
+        }
+      }
+    },
+    "channelType": {
+      "type": "string",
+      "knownValues": [
+        "text",
+        "voice"
+      ]
+    },
+    "groupKind": {
+      "type": "string",
+      "knownValues": [
+        "text",
+        "voice"
+      ]
+    }
+  }
+}

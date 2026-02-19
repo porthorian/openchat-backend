@@ -1,0 +1,156 @@
+{
+  "lexicon": 1,
+  "id": "com.pennyos.openchat.profile",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "OpenChat profile record stored in an AT Protocol repository.",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "displayName",
+          "avatarMode",
+          "profileVersion",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "description": "Display name shown to other users.",
+            "minLength": 2,
+            "maxLength": 128,
+            "maxGraphemes": 32
+          },
+          "description": {
+            "type": "string",
+            "description": "Short user bio.",
+            "maxLength": 3000,
+            "maxGraphemes": 300
+          },
+          "descriptionFacets": {
+            "type": "array",
+            "description": "Rich-text facets for the description field.",
+            "items": {
+              "type": "ref",
+              "ref": "app.bsky.richtext.facet"
+            },
+            "maxLength": 128
+          },
+          "avatarMode": {
+            "type": "ref",
+            "ref": "#avatarMode"
+          },
+          "avatar": {
+            "type": "ref",
+            "ref": "#avatarImage"
+          },
+          "avatarPresetId": {
+            "type": "ref",
+            "ref": "#avatarPresetId"
+          },
+          "atproto": {
+            "type": "ref",
+            "ref": "#atprotoIdentity"
+          },
+          "profileVersion": {
+            "type": "integer",
+            "description": "Monotonic version for optimistic concurrency.",
+            "minimum": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "labels": {
+            "type": "union",
+            "refs": [
+              "com.atproto.label.defs#selfLabels"
+            ]
+          }
+        }
+      }
+    },
+    "avatar": {
+      "type": "object",
+      "description": "Shared avatar schema used by OpenChat profile records.",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "ref",
+          "ref": "#avatarMode"
+        },
+        "image": {
+          "type": "ref",
+          "ref": "#avatarImage"
+        },
+        "presetId": {
+          "type": "ref",
+          "ref": "#avatarPresetId"
+        }
+      }
+    },
+    "avatarMode": {
+      "type": "string",
+      "description": "How the profile avatar is sourced.",
+      "knownValues": [
+        "generated",
+        "uploaded"
+      ]
+    },
+    "avatarImage": {
+      "type": "blob",
+      "description": "Uploaded profile avatar blob.",
+      "accept": [
+        "image/png",
+        "image/jpeg"
+      ],
+      "maxSize": 2000000
+    },
+    "avatarPresetId": {
+      "type": "string",
+      "description": "Generated avatar preset identifier.",
+      "knownValues": [
+        "horizon",
+        "reef",
+        "mint",
+        "ember",
+        "violet",
+        "slate"
+      ]
+    },
+    "atprotoIdentity": {
+      "type": "object",
+      "description": "AT Protocol identity metadata linked to this profile.",
+      "required": [
+        "did",
+        "handle"
+      ],
+      "properties": {
+        "did": {
+          "type": "string",
+          "format": "did"
+        },
+        "handle": {
+          "type": "string",
+          "format": "handle"
+        },
+        "pds": {
+          "type": "string",
+          "format": "uri"
+        },
+        "profileUri": {
+          "type": "string",
+          "format": "at-uri"
+        }
+      }
+    }
+  }
+}
