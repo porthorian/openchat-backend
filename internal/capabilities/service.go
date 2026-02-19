@@ -161,7 +161,7 @@ func (s *Service) Build() CapabilitiesResponse {
 		},
 		Limits: CapabilityLimitsResponse{
 			MaxMessageBytes:     65536,
-			MaxUploadBytes:      10485760,
+			MaxUploadBytes:      52428800,
 			RateLimitPerMinute:  180,
 			MaxCallParticipants: 200,
 		},

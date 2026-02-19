@@ -130,7 +130,7 @@ func NewService(publicBaseURL string) *Service {
 		channelServerByID:        make(map[string]string),
 		channelTypeByID:          make(map[string]ChannelType),
 		leftServersByUser:        make(map[string]map[string]time.Time),
-		maxAttachmentBytes:       10 * 1024 * 1024,
+		maxAttachmentBytes:       50 * 1024 * 1024,
 		maxAttachmentsPerMessage: 4,
 		allowedAttachmentTypes: map[string]struct{}{
 			"image/png":  {},
