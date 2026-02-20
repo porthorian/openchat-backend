@@ -77,7 +77,7 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, uploads, payloadErr := parseCreateMessagePayload(w, r, s.chat)
+	body, replyToMessageID, uploads, payloadErr := parseCreateMessagePayload(w, r, s.chat)
 	if payloadErr != nil {
 		switch {
 		case errors.Is(payloadErr, errAttachmentTooLarge):
@@ -95,11 +95,13 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requester := requesterFromContext(r.Context())
-	message, err := s.chat.CreateMessage(channelID, requester.UserUID, body, uploads)
+	message, err := s.chat.CreateMessage(channelID, requester.UserUID, body, uploads, replyToMessageID)
 	if err != nil {
 		switch {
 		case errors.Is(err, chat.ErrMessageEmpty):
 			writeError(w, http.StatusBadRequest, "message_empty", "message body or attachment is required", false)
+		case errors.Is(err, chat.ErrReplyTargetNotFound):
+			writeError(w, http.StatusBadRequest, "reply_target_not_found", "reply target message not found", false)
 		case errors.Is(err, chat.ErrTooManyAttachments):
 			writeError(w, http.StatusBadRequest, "attachment_count_exceeded", "too many attachments in one message", false)
 		case errors.Is(err, chat.ErrAttachmentTooLarge):
@@ -134,38 +136,42 @@ func (s *Server) getMessageAttachment(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(content)
 }
 
-func parseCreateMessagePayload(w http.ResponseWriter, r *http.Request, chatService *chat.Service) (string, []chat.AttachmentUploadInput, error) {
+func parseCreateMessagePayload(
+	w http.ResponseWriter,
+	r *http.Request,
+	chatService *chat.Service,
+) (string, string, []chat.AttachmentUploadInput, error) {
 	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
 	if strings.HasPrefix(contentType, "multipart/form-data") {
 		maxBytes, maxFiles, _ := chatService.AttachmentUploadRules()
 		maxBodyBytes := int64(maxBytes*maxFiles + multipartBodySlackBytes)
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		if err := r.ParseMultipartForm(maxBodyBytes); err != nil {
-			return "", nil, errInvalidMultipartPayload
+			return "", "", nil, errInvalidMultipartPayload
 		}
 		if r.MultipartForm == nil {
-			return "", nil, errInvalidMultipartPayload
+			return "", "", nil, errInvalidMultipartPayload
 		}
 
 		files := r.MultipartForm.File["files"]
 		if len(files) > maxFiles {
-			return "", nil, errAttachmentCountExceeded
+			return "", "", nil, errAttachmentCountExceeded
 		}
 
 		uploads := make([]chat.AttachmentUploadInput, 0, len(files))
 		for _, header := range files {
 			file, openErr := header.Open()
 			if openErr != nil {
-				return "", nil, errAttachmentReadFailed
+				return "", "", nil, errAttachmentReadFailed
 			}
 
 			content, readErr := io.ReadAll(io.LimitReader(file, int64(maxBytes+1)))
 			closeErr := file.Close()
 			if readErr != nil || closeErr != nil {
-				return "", nil, errAttachmentReadFailed
+				return "", "", nil, errAttachmentReadFailed
 			}
 			if len(content) > maxBytes {
-				return "", nil, errAttachmentTooLarge
+				return "", "", nil, errAttachmentTooLarge
 			}
 
 			uploads = append(uploads, chat.AttachmentUploadInput{
@@ -175,16 +181,17 @@ func parseCreateMessagePayload(w http.ResponseWriter, r *http.Request, chatServi
 			})
 		}
 
-		return r.FormValue("body"), uploads, nil
+		return r.FormValue("body"), strings.TrimSpace(r.FormValue("reply_to_message_id")), uploads, nil
 	}
 
 	var body struct {
-		Body string `json:"body"`
+		Body             string `json:"body"`
+		ReplyToMessageID string `json:"reply_to_message_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		return "", nil, errInvalidMessagePayload
+		return "", "", nil, errInvalidMessagePayload
 	}
-	return body.Body, nil, nil
+	return body.Body, strings.TrimSpace(body.ReplyToMessageID), nil, nil
 }
 
 func (s *Server) realtimeWS(w http.ResponseWriter, r *http.Request) {

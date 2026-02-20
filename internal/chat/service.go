@@ -46,12 +46,21 @@ type Member struct {
 }
 
 type Message struct {
-	ID          string              `json:"id"`
-	ChannelID   string              `json:"channel_id"`
-	AuthorUID   string              `json:"author_uid"`
-	Body        string              `json:"body"`
-	CreatedAt   string              `json:"created_at"`
-	Attachments []MessageAttachment `json:"attachments,omitempty"`
+	ID          string                 `json:"id"`
+	ChannelID   string                 `json:"channel_id"`
+	AuthorUID   string                 `json:"author_uid"`
+	Body        string                 `json:"body"`
+	CreatedAt   string                 `json:"created_at"`
+	ReplyTo     *MessageReplyReference `json:"reply_to,omitempty"`
+	Attachments []MessageAttachment    `json:"attachments,omitempty"`
+}
+
+type MessageReplyReference struct {
+	MessageID         string `json:"message_id"`
+	AuthorUID         string `json:"author_uid,omitempty"`
+	AuthorDisplayName string `json:"author_display_name,omitempty"`
+	PreviewText       string `json:"preview_text,omitempty"`
+	IsUnavailable     bool   `json:"is_unavailable"`
 }
 
 type MessageAttachment struct {
@@ -117,6 +126,7 @@ var (
 	ErrAttachmentImageInvalid    = errors.New("attachment image payload is invalid")
 	ErrTooManyAttachments        = errors.New("too many attachments")
 	ErrAttachmentNotFound        = errors.New("attachment not found")
+	ErrReplyTargetNotFound       = errors.New("reply target message not found")
 )
 
 func NewService(publicBaseURL string) *Service {
@@ -225,8 +235,15 @@ func (s *Service) AttachmentUploadRules() (maxBytes int, maxFiles int, mimeTypes
 	return s.maxAttachmentBytes, s.maxAttachmentsPerMessage, mimeTypes
 }
 
-func (s *Service) CreateMessage(channelID string, authorUID string, body string, uploads []AttachmentUploadInput) (Message, error) {
+func (s *Service) CreateMessage(
+	channelID string,
+	authorUID string,
+	body string,
+	uploads []AttachmentUploadInput,
+	replyToMessageID string,
+) (Message, error) {
 	body = strings.TrimSpace(body)
+	replyToMessageID = strings.TrimSpace(replyToMessageID)
 
 	s.mu.Lock()
 	channelType, ok := s.channelTypeByID[channelID]
@@ -263,12 +280,29 @@ func (s *Service) CreateMessage(channelID string, authorUID string, body string,
 		return Message{}, ErrMessageEmpty
 	}
 
+	var replyTo *MessageReplyReference
+	if replyToMessageID != "" {
+		replyMessage, found := s.findMessageByIDLocked(channelID, replyToMessageID)
+		if !found {
+			s.mu.Unlock()
+			return Message{}, ErrReplyTargetNotFound
+		}
+		replyTo = &MessageReplyReference{
+			MessageID:         replyMessage.ID,
+			AuthorUID:         replyMessage.AuthorUID,
+			AuthorDisplayName: replyMessage.AuthorUID,
+			PreviewText:       buildReplyPreviewText(replyMessage.Body),
+			IsUnavailable:     false,
+		}
+	}
+
 	message := Message{
 		ID:          "msg_" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""),
 		ChannelID:   channelID,
 		AuthorUID:   authorUID,
 		Body:        body,
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		ReplyTo:     cloneMessageReplyReference(replyTo),
 		Attachments: attachments,
 	}
 	s.messagesByChannel[channelID] = append(s.messagesByChannel[channelID], cloneMessage(message))
@@ -280,6 +314,37 @@ func (s *Service) CreateMessage(channelID string, authorUID string, body string,
 		broadcaster.BroadcastMessage(broadcastMessage)
 	}
 	return cloneMessage(message), nil
+}
+
+func (s *Service) findMessageByIDLocked(channelID string, messageID string) (Message, bool) {
+	for _, message := range s.messagesByChannel[channelID] {
+		if message.ID == messageID {
+			return cloneMessage(message), true
+		}
+	}
+	return Message{}, false
+}
+
+func buildReplyPreviewText(body string) string {
+	const maxPreviewRunes = 220
+	lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(body), "\r", ""), "\n")
+	parts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		parts = append(parts, trimmed)
+	}
+	preview := strings.Join(parts, " ")
+	if preview == "" {
+		return ""
+	}
+	runes := []rune(preview)
+	if len(runes) <= maxPreviewRunes {
+		return preview
+	}
+	return string(runes[:maxPreviewRunes-1]) + "…"
 }
 
 func (s *Service) AttachmentContent(channelID string, attachmentID string) (MessageAttachment, []byte, error) {
@@ -414,6 +479,7 @@ func cloneMessages(messages []Message) []Message {
 
 func cloneMessage(message Message) Message {
 	out := message
+	out.ReplyTo = cloneMessageReplyReference(message.ReplyTo)
 	if len(message.Attachments) > 0 {
 		out.Attachments = make([]MessageAttachment, len(message.Attachments))
 		for idx, attachment := range message.Attachments {
@@ -421,6 +487,14 @@ func cloneMessage(message Message) Message {
 		}
 	}
 	return out
+}
+
+func cloneMessageReplyReference(reply *MessageReplyReference) *MessageReplyReference {
+	if reply == nil {
+		return nil
+	}
+	cloned := *reply
+	return &cloned
 }
 
 func cloneMessageAttachment(attachment MessageAttachment) MessageAttachment {

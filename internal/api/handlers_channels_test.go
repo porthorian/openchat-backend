@@ -44,6 +44,9 @@ func TestCreateMessageWithImageAttachment(t *testing.T) {
 	if err := writer.WriteField("body", "pasted image"); err != nil {
 		t.Fatalf("write body field: %v", err)
 	}
+	if err := writer.WriteField("reply_to_message_id", "msg_seed_01"); err != nil {
+		t.Fatalf("write reply_to_message_id field: %v", err)
+	}
 	fileWriter, err := writer.CreateFormFile("files", "image.png")
 	if err != nil {
 		t.Fatalf("create multipart file: %v", err)
@@ -75,7 +78,12 @@ func TestCreateMessageWithImageAttachment(t *testing.T) {
 
 	var created struct {
 		Message struct {
-			Body        string `json:"body"`
+			Body    string `json:"body"`
+			ReplyTo *struct {
+				MessageID   string `json:"message_id"`
+				AuthorUID   string `json:"author_uid"`
+				PreviewText string `json:"preview_text"`
+			} `json:"reply_to"`
 			Attachments []struct {
 				AttachmentID string `json:"attachment_id"`
 				URL          string `json:"url"`
@@ -88,6 +96,18 @@ func TestCreateMessageWithImageAttachment(t *testing.T) {
 	}
 	if created.Message.Body != "pasted image" {
 		t.Fatalf("expected body to round-trip, got %q", created.Message.Body)
+	}
+	if created.Message.ReplyTo == nil {
+		t.Fatalf("expected reply_to payload")
+	}
+	if created.Message.ReplyTo.MessageID != "msg_seed_01" {
+		t.Fatalf("expected reply message id msg_seed_01, got %q", created.Message.ReplyTo.MessageID)
+	}
+	if created.Message.ReplyTo.AuthorUID == "" {
+		t.Fatalf("expected reply author uid in payload")
+	}
+	if created.Message.ReplyTo.PreviewText == "" {
+		t.Fatalf("expected reply preview text in payload")
 	}
 	if len(created.Message.Attachments) != 1 {
 		t.Fatalf("expected one attachment, got %d", len(created.Message.Attachments))
@@ -169,5 +189,56 @@ func TestCreateMessageRejectsEmptyTextAndAttachments(t *testing.T) {
 	}
 	if apiErr.Code != "message_empty" {
 		t.Fatalf("expected message_empty code, got %s", apiErr.Code)
+	}
+}
+
+func TestCreateMessageRejectsUnknownReplyTarget(t *testing.T) {
+	cfg := app.Config{
+		HTTPAddr:      ":0",
+		PublicBaseURL: "http://localhost:8080",
+		SignalingPath: "/v1/rtc/signaling",
+		TicketTTL:     60 * time.Second,
+		TicketSecret:  "test-secret",
+		Environment:   "test",
+	}
+	server := NewServer(cfg, slog.Default())
+	ts := httptest.NewServer(server.Router())
+	defer ts.Close()
+
+	payload := map[string]string{
+		"body":                "reply target should fail",
+		"reply_to_message_id": "msg_missing_404",
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/channels/ch_general/messages", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("build create request: %v", err)
+	}
+	req.Header.Set("X-OpenChat-User-UID", "uid_attachment_test")
+	req.Header.Set("X-OpenChat-Device-ID", "desktop_test")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("send create request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("unexpected status: %d body=%s", resp.StatusCode, string(payload))
+	}
+
+	var apiErr struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if apiErr.Code != "reply_target_not_found" {
+		t.Fatalf("expected reply_target_not_found code, got %s", apiErr.Code)
 	}
 }
