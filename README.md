@@ -106,3 +106,7 @@ OCI release flow:
 - CI packages and publishes to GHCR as:
   - `ghcr.io/<owner>/charts/openchat-backend:X.X.X`
   - `ghcr.io/<owner>/charts/openchat-backend:chart-vX.X.X`
+
+## License
+This project is licensed under GNU General Public License v2.0 only (`GPL-2.0-only`).
+See `LICENSE.md` for the full license text.
