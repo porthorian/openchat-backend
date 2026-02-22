@@ -9,6 +9,7 @@
 - `client-search-model.md`: search design with E2EE constraints.
 - `multi-device-key-management.md`: key transfer and encrypted backup model.
 - `backend-module-plan.md`: Go package/folder and service boundary plan.
+- `mentions-read-ack-contract.md`: backend capability, API, and realtime contract for mentions + read acknowledgments.
 - `moderation-and-governance.md`: moderation policy, voting, and enforcement design.
 - `webrtc-sfu-backend-design.md`: signaling, SFU, ICE/TURN, and call lifecycle design.
 - `webrtc-test-strategy.md`: contract, integration, load, and chaos testing plan for RTC.

@@ -17,6 +17,8 @@ openchat-backend/
       handlers_capabilities.go
       handlers_channels.go
       handlers_messages.go
+      handlers_mentions.go
+      handlers_read_acks.go
       handlers_membership.go
       handlers_rtc.go
       handlers_moderation.go
@@ -38,6 +40,11 @@ openchat-backend/
     messages/
       service.go
       envelope_validator.go
+    mentions/
+      service.go
+      policy.go
+    readacks/
+      service.go
     rtc/
       token_service.go
       signaling_service.go
@@ -64,6 +71,8 @@ openchat-backend/
         repo_membership.go
         repo_epochs.go
         repo_messages.go
+        repo_mentions.go
+        repo_read_acks.go
         repo_rtc.go
         repo_moderation.go
         repo_devices.go
@@ -84,6 +93,8 @@ openchat-backend/
 - `membership`: authoritative channel membership timeline.
 - `epochs`: handles epoch sequence and commit validation.
 - `messages`: persists/retrieves encrypted message envelopes.
+- `mentions`: validates mention metadata, enforces mentionability policy, and resolves mention candidates.
+- `readacks`: persists monotonic per-channel read cursors used for unread/mention accuracy.
 - `rtc`: join-ticket auth, signaling, SFU room orchestration, and media policy enforcement.
 - `moderation`: policy, cases, report bundles, voting, and enforcement decisions.
 - `keysync`: relays encrypted key envelopes + manages encrypted backups.
@@ -93,6 +104,9 @@ openchat-backend/
 - `GET /v1/client/capabilities`
 - `GET /v1/channels/:channel_id/history?cursor=...`
 - `POST /v1/channels/:channel_id/messages`
+- `GET /v1/channels/:channel_id/mentions:resolve?query=...`
+- `PUT /v1/channels/:channel_id/read-ack`
+- `GET /v1/channels/:channel_id/read-ack`
 - `POST /v1/channels/:channel_id/membership/commit`
 - `POST /v1/rtc/channels/:channel_id/join-ticket`
 - `GET /v1/rtc/signaling` (websocket upgrade)
@@ -119,8 +133,9 @@ openchat-backend/
 1. Capabilities + auth/session baseline.
 2. Membership + epoch commit chain.
 3. Encrypted message ingest/history retrieval.
-4. RTC join-ticket, signaling, and SFU voice baseline.
-5. RTC video/screenshare + scaling hardening.
-6. Moderation policy/case/vote enforcement.
-7. Device linking and key envelope relay.
-8. Realtime event fanout and operational hardening.
+4. Mentions metadata validation/resolution + read-ack cursor APIs.
+5. RTC join-ticket, signaling, and SFU voice baseline.
+6. RTC video/screenshare + scaling hardening.
+7. Moderation policy/case/vote enforcement.
+8. Device linking and key envelope relay.
+9. Realtime event fanout and operational hardening.
