@@ -41,7 +41,7 @@ func TestCreateMessageWithImageAttachment(t *testing.T) {
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("body", "pasted image"); err != nil {
+	if err := writer.WriteField("body", "pasted image @here @uid_attachment_test"); err != nil {
 		t.Fatalf("write body field: %v", err)
 	}
 	if err := writer.WriteField("reply_to_message_id", "msg_seed_01"); err != nil {
@@ -84,6 +84,11 @@ func TestCreateMessageWithImageAttachment(t *testing.T) {
 				AuthorUID   string `json:"author_uid"`
 				PreviewText string `json:"preview_text"`
 			} `json:"reply_to"`
+			Mentions []struct {
+				Type     string `json:"type"`
+				Token    string `json:"token"`
+				TargetID string `json:"target_id"`
+			} `json:"mentions"`
 			Attachments []struct {
 				AttachmentID string `json:"attachment_id"`
 				URL          string `json:"url"`
@@ -94,8 +99,27 @@ func TestCreateMessageWithImageAttachment(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		t.Fatalf("decode create response: %v", err)
 	}
-	if created.Message.Body != "pasted image" {
+	if created.Message.Body != "pasted image @here @uid_attachment_test" {
 		t.Fatalf("expected body to round-trip, got %q", created.Message.Body)
+	}
+	if len(created.Message.Mentions) == 0 {
+		t.Fatalf("expected mentions payload in created message")
+	}
+	var hasHereMention bool
+	var hasUserMention bool
+	for _, mention := range created.Message.Mentions {
+		if mention.Type == "channel" && mention.Token == "@here" {
+			hasHereMention = true
+		}
+		if mention.Type == "user" && mention.TargetID == "uid_attachment_test" {
+			hasUserMention = true
+		}
+	}
+	if !hasHereMention {
+		t.Fatalf("expected @here mention metadata")
+	}
+	if !hasUserMention {
+		t.Fatalf("expected user mention metadata")
 	}
 	if created.Message.ReplyTo == nil {
 		t.Fatalf("expected reply_to payload")

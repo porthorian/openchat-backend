@@ -52,6 +52,7 @@ type Message struct {
 	Body        string                 `json:"body"`
 	CreatedAt   string                 `json:"created_at"`
 	ReplyTo     *MessageReplyReference `json:"reply_to,omitempty"`
+	Mentions    []MessageMention       `json:"mentions,omitempty"`
 	Attachments []MessageAttachment    `json:"attachments,omitempty"`
 }
 
@@ -90,6 +91,7 @@ type ServerDirectoryEntry struct {
 
 type MessageBroadcaster interface {
 	BroadcastMessage(message Message)
+	BroadcastReadAck(update ChannelReadAckUpdate)
 }
 
 type Service struct {
@@ -101,6 +103,7 @@ type Service struct {
 	channelGroupsByServer map[string][]ChannelGroup
 	membersByServer       map[string][]Member
 	messagesByChannel     map[string][]Message
+	readAcksByChannelUser map[string]ChannelReadAck
 	attachmentsByID       map[string]attachmentBlob
 	channelServerByID     map[string]string
 	channelTypeByID       map[string]ChannelType
@@ -136,6 +139,7 @@ func NewService(publicBaseURL string) *Service {
 		channelGroupsByServer:    seedChannelGroups(),
 		membersByServer:          seedMembers(),
 		messagesByChannel:        seedMessages(),
+		readAcksByChannelUser:    make(map[string]ChannelReadAck),
 		attachmentsByID:          make(map[string]attachmentBlob),
 		channelServerByID:        make(map[string]string),
 		channelTypeByID:          make(map[string]ChannelType),
@@ -149,6 +153,7 @@ func NewService(publicBaseURL string) *Service {
 		},
 	}
 	svc.indexChannels()
+	svc.hydrateSeedMentionMetadata()
 	return svc
 }
 
@@ -303,6 +308,7 @@ func (s *Service) CreateMessage(
 		Body:        body,
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 		ReplyTo:     cloneMessageReplyReference(replyTo),
+		Mentions:    extractMentions(body),
 		Attachments: attachments,
 	}
 	s.messagesByChannel[channelID] = append(s.messagesByChannel[channelID], cloneMessage(message))
@@ -480,6 +486,7 @@ func cloneMessages(messages []Message) []Message {
 func cloneMessage(message Message) Message {
 	out := message
 	out.ReplyTo = cloneMessageReplyReference(message.ReplyTo)
+	out.Mentions = cloneMessageMentions(message.Mentions)
 	if len(message.Attachments) > 0 {
 		out.Attachments = make([]MessageAttachment, len(message.Attachments))
 		for idx, attachment := range message.Attachments {

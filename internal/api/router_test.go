@@ -50,6 +50,12 @@ func TestCapabilitiesEndpoint(t *testing.T) {
 	if payload["profile"] == nil {
 		t.Fatalf("expected profile payload in capabilities response")
 	}
+	if payload["mentions"] == nil {
+		t.Fatalf("expected mentions payload in capabilities response")
+	}
+	if payload["read_acks"] == nil {
+		t.Fatalf("expected read_acks payload in capabilities response")
+	}
 	if payload["build_version"] == nil {
 		t.Fatalf("expected build_version in capabilities response")
 	}

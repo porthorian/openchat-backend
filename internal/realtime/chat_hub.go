@@ -100,7 +100,30 @@ func (h *Hub) BroadcastMessage(message chat.Message) {
 	if len(room) == 0 {
 		return
 	}
-	envelope := newEnvelope("chat.message.created", "", map[string]any{"message": message})
+	envelope := newEnvelope("chat.message.created", "", map[string]any{"event_id": "evt_" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""), "message": message})
+	for _, client := range room {
+		client.enqueue(envelope)
+	}
+}
+
+func (h *Hub) BroadcastReadAck(update chat.ChannelReadAckUpdate) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	room := h.subscribersByRoom[update.ChannelID]
+	if len(room) == 0 {
+		return
+	}
+	payload := map[string]any{
+		"event_id":             "evt_" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""),
+		"channel_id":           update.ChannelID,
+		"user_uid":             update.UserUID,
+		"last_read_message_id": update.LastReadMessageID,
+		"acked_at":             update.AckedAt,
+	}
+	if update.CursorIndex != nil {
+		payload["cursor_index"] = *update.CursorIndex
+	}
+	envelope := newEnvelope("chat.read_ack.updated", "", payload)
 	for _, client := range room {
 		client.enqueue(envelope)
 	}

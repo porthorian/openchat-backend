@@ -25,6 +25,8 @@ type CapabilitiesResponse struct {
 	ProfileDataPolicy      string                        `json:"profile_data_policy"`
 	Transport              TransportCapabilitiesResponse `json:"transport"`
 	Features               CoreFeatureFlagsResponse      `json:"features"`
+	Mentions               MentionCapabilitiesResponse   `json:"mentions"`
+	ReadAcks               ReadAckCapabilitiesResponse   `json:"read_acks"`
 	Limits                 CapabilityLimitsResponse      `json:"limits"`
 	Security               SecurityCapabilitiesResponse  `json:"security"`
 	RTC                    *RTCCapabilitiesResponse      `json:"rtc,omitempty"`
@@ -43,6 +45,20 @@ type CoreFeatureFlagsResponse struct {
 	Presence      bool `json:"presence"`
 	Attachments   bool `json:"attachments"`
 	Notifications bool `json:"notifications"`
+}
+
+type MentionCapabilitiesResponse struct {
+	User            bool     `json:"user"`
+	Channel         bool     `json:"channel"`
+	Resolve         bool     `json:"resolve"`
+	Notifications   bool     `json:"notifications"`
+	SupportedTokens []string `json:"supported_tokens"`
+}
+
+type ReadAckCapabilitiesResponse struct {
+	Channel    bool   `json:"channel"`
+	CursorType string `json:"cursor_type"`
+	Monotonic  bool   `json:"monotonic"`
 }
 
 type CapabilityLimitsResponse struct {
@@ -158,6 +174,18 @@ func (s *Service) Build() CapabilitiesResponse {
 			Presence:      true,
 			Attachments:   true,
 			Notifications: true,
+		},
+		Mentions: MentionCapabilitiesResponse{
+			User:            true,
+			Channel:         true,
+			Resolve:         true,
+			Notifications:   true,
+			SupportedTokens: []string{"@here", "@channel"},
+		},
+		ReadAcks: ReadAckCapabilitiesResponse{
+			Channel:    true,
+			CursorType: "message_id",
+			Monotonic:  true,
 		},
 		Limits: CapabilityLimitsResponse{
 			MaxMessageBytes:     65536,
