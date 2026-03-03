@@ -8,6 +8,7 @@ This file defines implementation constraints and planning rules for `openchat-ba
 - Do not run commands unless explicitly approved by the user or explicitly allowed in this file.
 - Never reintroduce code/content that the user previously removed.
 - Prefer targeted edits over full-file rewrites unless the user explicitly requests a rewrite.
+- Allowed to run write commands and read commands of files in workspace.
 
 ## Repository Scope
 - In scope:

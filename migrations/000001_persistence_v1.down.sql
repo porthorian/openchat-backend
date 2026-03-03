@@ -1,0 +1,22 @@
+DROP TABLE IF EXISTS rtc_join_ticket_replay;
+DROP TABLE IF EXISTS atproto_authorizations;
+DROP TABLE IF EXISTS atproto_auth_requests;
+DROP TABLE IF EXISTS auth_sessions;
+DROP TABLE IF EXISTS auth_identity_bindings;
+DROP TABLE IF EXISTS profiles;
+DROP TABLE IF EXISTS profile_avatar_blobs;
+DROP TABLE IF EXISTS profile_avatar_assets;
+DROP TABLE IF EXISTS channel_read_acks;
+DROP TABLE IF EXISTS message_attachment_blobs;
+DROP TABLE IF EXISTS message_attachments;
+DROP TABLE IF EXISTS message_mentions;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS channel_memberships;
+DROP TABLE IF EXISTS channels;
+DROP TABLE IF EXISTS channel_groups;
+DROP TABLE IF EXISTS server_memberships;
+DROP TABLE IF EXISTS servers;
+DROP TABLE IF EXISTS users;
+
+DROP FUNCTION IF EXISTS openchat_set_updated_at();
+DROP FUNCTION IF EXISTS openchat_generate_id(text);

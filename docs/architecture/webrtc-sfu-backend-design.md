@@ -201,7 +201,7 @@ Structured logs:
 - On signaling disconnect, room manager marks participant stale and starts grace timer.
 - If reconnect succeeds within grace window, resume subscriber state where possible.
 - If not, fully remove participant and broadcast leave.
-- On backend restart, all RTC sessions reset; clients rejoin through standard reconnect flow.
+- On backend restart, clients should attempt session resume hints first; if resume cannot be satisfied, fall back to standard full rejoin flow.
 
 ## 15) Rollout Plan
 1. Phase A: capability contract + join-ticket endpoint + signaling skeleton.

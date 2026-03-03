@@ -1,6 +1,6 @@
 # Implementation Open Questions (Backend)
 
-Last updated: 2026-02-11
+Last updated: 2026-03-03
 
 ## 1) SFU Engine Choice
 - Should we implement SFU directly with Pion primitives or integrate Ion-SFU behind `rtc/sfu_adapter.go` first?
@@ -9,6 +9,7 @@ Last updated: 2026-02-11
 ## 2) Authentication and Session Binding
 - Current implementation accepts UID/device headers for join-ticket flow in non-production mode.
 - What is the exact production session validation contract (token claims, issuer, expiry, revocation behavior)?
+  JWT should be used
 
 ## 3) TURN/STUN Provisioning
 - What TURN provider/deployment model should be the default for decentralized operators?
@@ -39,4 +40,40 @@ Last updated: 2026-02-11
 
 ## 9) Failure Recovery Behavior
 - On backend restart, should we attempt session resume hints or always require full rejoin?
+  Should attempt session resume hints
 - Do we want bounded grace windows configurable per server profile for reconnect handling?
+
+## 10) Postgres Persistence Rollout (New)
+Reference docs:
+- `postgres-persistence-rollout-plan.md`
+- `postgres-feature-table-mapping.md`
+
+Decided:
+- Attachment/avatar backend supports object storage as an option; default storage is Postgres unless configured otherwise.
+- Enforce strict channel-name uniqueness per group/category.
+- `profiles:batch` should return only existing persisted profiles (no lazy create side effect).
+- `auth_sessions` is source-of-truth in Postgres; Redis is a non-authoritative cache layer for hot-path session checks.
+- Redis cache TTL should align with session expiry and use bounded jitter.
+- Do not negative-cache invalid session tokens.
+
+Remaining open decisions:
+- Attachment/object-storage provider interface and cutover details.
+- Exact case-folding/collation behavior for channel-name uniqueness constraints.
+
+## 11) Seed Removal and Fixture Strategy (New)
+- What is the final policy for development bootstrap fixtures (`OPENCHAT_ENABLE_SEED_BOOTSTRAP`) across CI/local/staging?
+  Final policy is bootstrap should be done by creation of data instead of it being statically defined.
+- Should we keep deterministic seed IDs for snapshot tests, or migrate all tests to generated fixtures and lookup by stable labels?
+  Generated fixtures and lookup by stable labels
+- When do we remove all in-memory `seed*` code paths versus keeping a temporary compatibility adapter?
+  Immediately. This is because we are still working towards MVP and things can break at the moment.
+
+## 12) Optional AT Protocol Authorization (New)
+- Should DID be canonical user identity in storage, or remain provider subject mapped to local `user_uid`?
+  Remain provider subject mapped to local user_uid
+- Which AT Protocol claims/scopes are required for membership/channel/server mutation permissions?
+- What revocation and refresh-token rotation SLA is required for production mode?
+- Should `atproto_optional` fallback to dev headers in staging only, or also in production with explicit allowlist?
+
+Auth/session decisions captured:
+- Production session validation contract should use JWT.

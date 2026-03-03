@@ -113,6 +113,7 @@ Expected behavior:
 - controlled degradation, no panic crashes
 - predictable error responses
 - eventual room cleanup without orphan sessions
+- after backend restart, resume-hint path is attempted before full rejoin fallback
 
 ## 11) CI Stage Plan (Backend Repo)
 Proposed pipeline:
