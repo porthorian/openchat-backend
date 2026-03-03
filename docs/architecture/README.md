@@ -16,4 +16,5 @@
 - `helm-chart-release.md`: chart layout and `chart-vX.X.X` OCI publish flow.
 - `postgres-persistence-rollout-plan.md`: Postgres rollout plan for currently implemented backend features, including seed removal and optional AT Protocol auth scaffolding.
 - `postgres-feature-table-mapping.md`: feature-to-table persistence mapping matrix with confidence and TBD notes.
+- `multi-instance-sharding-plan.md`: scaling plan for multi-instance operation, shard routing, and server rebalancing.
 - `implementation-open-questions.md`: unresolved backend implementation decisions requiring maintainer input.

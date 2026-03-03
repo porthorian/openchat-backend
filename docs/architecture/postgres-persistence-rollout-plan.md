@@ -341,3 +341,19 @@ Acceptance criteria:
 - Implementing voice/video media storage.
 - Implementing full AT Protocol auth end-to-end in this single migration.
 - Finalizing E2EE epoch tables and cryptographic key relay persistence in v1.
+
+## 13) Beyond Single Instance (Scale Follow-On)
+Reference:
+- `multi-instance-sharding-plan.md`
+
+After the v1 persistence milestones above, scale work should proceed through:
+- `S0`: multi-instance readiness baseline
+- `S1`: shared realtime bus
+- `S2`: RTC room ownership coordination
+- `S3`: shard map and resolver
+- `S4`: multi-shard data plane
+- `S5`: server rebalance tooling
+- `S6`: scale hardening
+
+Key guardrail:
+- Do not start physical sharding before process-local authoritative state is removed from realtime/RTC paths and multi-instance correctness is validated.

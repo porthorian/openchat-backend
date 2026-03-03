@@ -77,3 +77,15 @@ Remaining open decisions:
 
 Auth/session decisions captured:
 - Production session validation contract should use JWT.
+
+## 13) Multi-Instance and Sharding (New)
+Reference docs:
+- `multi-instance-sharding-plan.md`
+- `postgres-persistence-rollout-plan.md`
+
+Open decisions:
+- Should shared realtime fanout use Redis pub/sub first or Redis streams first?
+- Should WS/RTC require strict sticky sessions, or only best-effort affinity with room-owner forwarding?
+- What concrete SLO/capacity thresholds trigger promotion from single-cluster multi-instance operation to sharded operation?
+- Should shard assignment be manually operator-managed first, or policy-driven auto-placement from day one?
+- For shard rebalancing, do we start with short write-freeze cutovers or build write queueing/dual-write immediately?
