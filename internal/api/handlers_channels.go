@@ -35,6 +35,100 @@ func (s *Server) listChannelGroups(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
+	serverID := strings.TrimSpace(chi.URLParam(r, "serverID"))
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_server", "server id is required", false)
+		return
+	}
+
+	var payload struct {
+		Name    string `json:"name"`
+		Type    string `json:"type"`
+		GroupID string `json:"group_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_payload", "invalid channel payload", false)
+		return
+	}
+
+	requester := requesterFromContext(r.Context())
+	event, err := s.chat.CreateChannel(
+		serverID,
+		requester.UserUID,
+		payload.GroupID,
+		payload.Name,
+		chat.ChannelType(strings.TrimSpace(payload.Type)),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, chat.ErrChannelCreateForbidden):
+			writeError(w, http.StatusForbidden, "channel_create_forbidden", "requester does not have permission to create channels", false)
+		case errors.Is(err, chat.ErrChannelNameInvalid):
+			writeError(w, http.StatusBadRequest, "invalid_channel_name", "channel name is invalid", false)
+		case errors.Is(err, chat.ErrChannelTypeUnsupported):
+			writeError(w, http.StatusBadRequest, "invalid_channel_type", "channel type is unsupported", false)
+		case errors.Is(err, chat.ErrChannelGroupNotFound):
+			writeError(w, http.StatusNotFound, "channel_group_not_found", "channel group not found", false)
+		case isUnknownServerError(err):
+			writeError(w, http.StatusNotFound, "server_not_found", err.Error(), false)
+		default:
+			writeError(w, http.StatusBadRequest, "channel_create_failed", err.Error(), false)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"server_id":      event.ServerID,
+		"group_id":       event.GroupID,
+		"channel":        event.Channel,
+		"created_by_uid": event.CreatedByUID,
+		"created_at":     event.CreatedAt,
+	})
+}
+
+func (s *Server) createCategory(w http.ResponseWriter, r *http.Request) {
+	serverID := strings.TrimSpace(chi.URLParam(r, "serverID"))
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_server", "server id is required", false)
+		return
+	}
+
+	var payload struct {
+		Name string `json:"name"`
+		Kind string `json:"kind"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_payload", "invalid category payload", false)
+		return
+	}
+
+	requester := requesterFromContext(r.Context())
+	created, err := s.chat.CreateCategory(serverID, requester.UserUID, payload.Name, payload.Kind)
+	if err != nil {
+		switch {
+		case errors.Is(err, chat.ErrCategoryCreateForbidden):
+			writeError(w, http.StatusForbidden, "category_create_forbidden", "requester does not have permission to create categories", false)
+		case errors.Is(err, chat.ErrCategoryNameInvalid):
+			writeError(w, http.StatusBadRequest, "invalid_category_name", "category name is invalid", false)
+		case errors.Is(err, chat.ErrCategoryKindUnsupported):
+			writeError(w, http.StatusBadRequest, "invalid_category_kind", "category kind is unsupported", false)
+		case isUnknownServerError(err):
+			writeError(w, http.StatusNotFound, "server_not_found", err.Error(), false)
+		default:
+			writeError(w, http.StatusBadRequest, "category_create_failed", err.Error(), false)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"server_id":      created.ServerID,
+		"group":          created.Group,
+		"created_by_uid": created.CreatedByUID,
+		"created_at":     created.CreatedAt,
+	})
+}
+
 func (s *Server) listMembers(w http.ResponseWriter, r *http.Request) {
 	serverID := strings.TrimSpace(chi.URLParam(r, "serverID"))
 	members, err := s.chat.ListMembers(serverID)
@@ -196,4 +290,11 @@ func parseCreateMessagePayload(
 
 func (s *Server) realtimeWS(w http.ResponseWriter, r *http.Request) {
 	s.realtime.ServeWS(w, r)
+}
+
+func isUnknownServerError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "unknown server id")
 }

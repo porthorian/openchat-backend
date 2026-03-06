@@ -1,6 +1,9 @@
 package capabilities
 
-import "github.com/openchat/openchat-backend/internal/app"
+import (
+	"github.com/openchat/openchat-backend/internal/app"
+	"github.com/openchat/openchat-backend/internal/chat"
+)
 
 type Service struct {
 	cfg app.Config
@@ -176,8 +179,8 @@ func (s *Service) Build() CapabilitiesResponse {
 	build := app.CurrentBuildInfo()
 	subscribeReceiveLimits := s.cfg.ResolveRTCSubscribeReceiveLimits("", "")
 	return CapabilitiesResponse{
-		ServerName:             "OpenChat Harbor",
-		ServerID:               "srv_harbor",
+		ServerName:             "Harbor Guild",
+		ServerID:               chat.SeedServerIDHarbor,
 		APIVersion:             "2026-02-14",
 		BuildVersion:           build.Version,
 		BuildCommit:            build.Commit,

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/openchat/openchat-backend/internal/app"
+	"github.com/openchat/openchat-backend/internal/chat"
 )
 
 var onePixelPNG = []byte{
@@ -264,5 +265,193 @@ func TestCreateMessageRejectsUnknownReplyTarget(t *testing.T) {
 	}
 	if apiErr.Code != "reply_target_not_found" {
 		t.Fatalf("expected reply_target_not_found code, got %s", apiErr.Code)
+	}
+}
+
+func TestCreateChannelSuccessAndServerListingIncludesCreatedChannel(t *testing.T) {
+	cfg := app.Config{
+		HTTPAddr:      ":0",
+		PublicBaseURL: "http://localhost:8080",
+		SignalingPath: "/v1/rtc/signaling",
+		TicketTTL:     60 * time.Second,
+		TicketSecret:  "test-secret",
+		Environment:   "test",
+	}
+	server := NewServer(cfg, slog.Default())
+	ts := httptest.NewServer(server.Router())
+	defer ts.Close()
+
+	createPayload := map[string]string{
+		"name":     "team-standup",
+		"type":     "voice",
+		"group_id": "grp_voice",
+	}
+	rawPayload, err := json.Marshal(createPayload)
+	if err != nil {
+		t.Fatalf("marshal create payload: %v", err)
+	}
+
+	createReq, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/servers/"+chat.SeedServerIDHarbor+"/channels", bytes.NewReader(rawPayload))
+	if err != nil {
+		t.Fatalf("build create request: %v", err)
+	}
+	createReq.Header.Set("X-OpenChat-User-UID", "uid_channel_owner")
+	createReq.Header.Set("X-OpenChat-Device-ID", "desktop_test")
+	createReq.Header.Set("Content-Type", "application/json")
+
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create channel request failed: %v", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(createResp.Body)
+		t.Fatalf("unexpected create channel status: %d body=%s", createResp.StatusCode, string(body))
+	}
+
+	var created struct {
+		ServerID     string `json:"server_id"`
+		GroupID      string `json:"group_id"`
+		CreatedByUID string `json:"created_by_uid"`
+		CreatedAt    string `json:"created_at"`
+		Channel      struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+			Type string `json:"type"`
+		} `json:"channel"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if created.ServerID != chat.SeedServerIDHarbor {
+		t.Fatalf("expected harbor server id, got %s", created.ServerID)
+	}
+	if created.GroupID != "grp_voice" {
+		t.Fatalf("expected group_id grp_voice, got %s", created.GroupID)
+	}
+	if created.CreatedByUID != "uid_channel_owner" {
+		t.Fatalf("expected created_by_uid uid_channel_owner, got %s", created.CreatedByUID)
+	}
+	if created.Channel.ID == "" {
+		t.Fatalf("expected created channel id")
+	}
+	if created.Channel.Type != "voice" {
+		t.Fatalf("expected channel type voice, got %s", created.Channel.Type)
+	}
+
+	listResp, err := http.Get(ts.URL + "/v1/servers/" + chat.SeedServerIDHarbor + "/channels")
+	if err != nil {
+		t.Fatalf("list channel groups request failed: %v", err)
+	}
+	defer listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(listResp.Body)
+		t.Fatalf("unexpected list status: %d body=%s", listResp.StatusCode, string(body))
+	}
+
+	var listed struct {
+		Groups []struct {
+			ID       string `json:"id"`
+			Channels []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+				Type string `json:"type"`
+			} `json:"channels"`
+		} `json:"groups"`
+	}
+	if err := json.NewDecoder(listResp.Body).Decode(&listed); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+
+	var found bool
+	for _, group := range listed.Groups {
+		if group.ID != "grp_voice" {
+			continue
+		}
+		for _, channel := range group.Channels {
+			if channel.ID == created.Channel.ID {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected created channel %s in voice group listing", created.Channel.ID)
+	}
+}
+
+func TestCreateChannelAllowsMixedCategoryAndRejectsNonOwner(t *testing.T) {
+	cfg := app.Config{
+		HTTPAddr:      ":0",
+		PublicBaseURL: "http://localhost:8080",
+		SignalingPath: "/v1/rtc/signaling",
+		TicketTTL:     60 * time.Second,
+		TicketSecret:  "test-secret",
+		Environment:   "test",
+	}
+	server := NewServer(cfg, slog.Default())
+	ts := httptest.NewServer(server.Router())
+	defer ts.Close()
+
+	create := func(userUID string, payload map[string]string) *http.Response {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/servers/"+chat.SeedServerIDHarbor+"/channels", bytes.NewReader(raw))
+		if err != nil {
+			t.Fatalf("build request: %v", err)
+		}
+		req.Header.Set("X-OpenChat-User-UID", userUID)
+		req.Header.Set("X-OpenChat-Device-ID", "desktop_test")
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("send request: %v", err)
+		}
+		return resp
+	}
+
+	ownerResp := create("uid_owner", map[string]string{
+		"name":     "owner-text",
+		"type":     "text",
+		"group_id": "grp_general",
+	})
+	defer ownerResp.Body.Close()
+	if ownerResp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(ownerResp.Body)
+		t.Fatalf("expected owner create success, got %d body=%s", ownerResp.StatusCode, string(body))
+	}
+
+	mixedCategoryResp := create("uid_owner", map[string]string{
+		"name":     "voice-in-text",
+		"type":     "voice",
+		"group_id": "grp_general",
+	})
+	defer mixedCategoryResp.Body.Close()
+	if mixedCategoryResp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(mixedCategoryResp.Body)
+		t.Fatalf("expected mixed-category create success, got %d body=%s", mixedCategoryResp.StatusCode, string(body))
+	}
+
+	forbiddenResp := create("uid_other", map[string]string{
+		"name":     "not-allowed",
+		"type":     "text",
+		"group_id": "grp_general",
+	})
+	defer forbiddenResp.Body.Close()
+	if forbiddenResp.StatusCode != http.StatusForbidden {
+		body, _ := io.ReadAll(forbiddenResp.Body)
+		t.Fatalf("expected 403 for non-owner create, got %d body=%s", forbiddenResp.StatusCode, string(body))
+	}
+	var forbiddenErr struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(forbiddenResp.Body).Decode(&forbiddenErr); err != nil {
+		t.Fatalf("decode forbidden response: %v", err)
+	}
+	if forbiddenErr.Code != "channel_create_forbidden" {
+		t.Fatalf("expected channel_create_forbidden code, got %s", forbiddenErr.Code)
 	}
 }

@@ -67,7 +67,7 @@ Optional override env vars (CSV `id=value`):
 - `OPENCHAT_RTC_SUBSCRIBE_MAX_AUDIO_TRACKS_BY_CHANNEL`
 
 Examples:
-- `OPENCHAT_RTC_SUBSCRIBE_MAX_VIDEO_TRACKS_BY_SERVER=srv_harbor=10,srv_testlab=6`
+- `OPENCHAT_RTC_SUBSCRIBE_MAX_VIDEO_TRACKS_BY_SERVER=0d5f6a8b-1f43-4f4f-9d8e-9ab6f913f4f8=10,6b6d8f24-a39f-4f8a-9f9d-0f70f2a2e9f1=6`
 - `OPENCHAT_RTC_SUBSCRIBE_MAX_AUDIO_TRACKS_BY_CHANNEL=vc_general=20,tl_vc_huddle=12`
 
 Wire contracts:
@@ -87,41 +87,14 @@ docker build \
 
 For tagged builds, set `BUILD_VERSION` to the tag value you publish (for example `v1.2.3`).
 
-## RTC Joiner (Legacy Audio Stream Tool)
-Start a signaling client that joins a voice channel and streams audio over legacy `rtc.media.state` chunk payloads.
-The production RTC v2 path uses WebRTC RTP audio/video tracks.
-
-```bash
-go run ./cmd/openchat-rtc-joiner \
-  --channel-id vc_general \
-  --file ./pina_colada.mp3 \
-  --file-type mp3
-```
-
-Key flags:
-- `--channel-id` (required): voice channel id.
-- `--file`: file path to transmit.
-- `--file-type`: label for transmitted file chunks (required with `--file`).
-- `--media-mode`: `pcm-frames` (default) or `chunks`.
-- `--ffmpeg-bin`: ffmpeg binary path used in `pcm-frames` mode.
-- `--backend-url`: backend base URL (default `http://localhost:8080`).
-- `--server-id`: server id for join ticket (default `srv_harbor`).
-- `--loop`: replay file indefinitely.
-- `--write-received-dir`: optional directory to reconstruct incoming streams from other joiners.
-
-Example receiver that writes incoming streams:
-
-```bash
-go run ./cmd/openchat-rtc-joiner \
-  --channel-id vc_general \
-  --media-mode chunks \
-  --write-received-dir ./tmp/incoming
-```
-
 ## Implemented Endpoints (Current)
 - `GET /healthz`
 - `GET /v1/client/capabilities`
 - `GET /v1/servers` (requester-scoped when identity headers are present)
+- `POST /v1/servers/:server_id/channels`
+- `POST /v1/servers/:server_id/categories`
+- `GET /v1/servers/:server_id/settings`
+- `PUT /v1/servers/:server_id/settings`
 - `DELETE /v1/servers/:server_id/membership`
 - `GET /v1/profile/me`
 - `PUT /v1/profile/me`
@@ -130,6 +103,11 @@ go run ./cmd/openchat-rtc-joiner \
 - `GET /v1/profiles:batch`
 - `POST /v1/rtc/channels/:channel_id/join-ticket`
 - `GET /v1/rtc/signaling` (WebSocket)
+
+Realtime channel events (`GET /v1/realtime` WebSocket):
+- `chat.channel.created`
+- `chat.category.created`
+- `chat.server.updated`
 
 ## Helm Chart
 Chart path:

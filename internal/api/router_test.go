@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openchat/openchat-backend/internal/app"
+	"github.com/openchat/openchat-backend/internal/chat"
 )
 
 func TestCapabilitiesEndpoint(t *testing.T) {
@@ -97,7 +98,8 @@ func TestServerDirectoryEndpoint(t *testing.T) {
 
 	var payload struct {
 		Servers []struct {
-			ServerID string `json:"server_id"`
+			ServerID    string `json:"server_id"`
+			Description string `json:"description"`
 		} `json:"servers"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
@@ -110,18 +112,21 @@ func TestServerDirectoryEndpoint(t *testing.T) {
 	var hasHarbor bool
 	var hasTestLab bool
 	for _, server := range payload.Servers {
-		if server.ServerID == "srv_harbor" {
+		if server.ServerID == chat.SeedServerIDHarbor {
 			hasHarbor = true
 		}
-		if server.ServerID == "srv_testlab" {
+		if server.ServerID == chat.SeedServerIDTestLab {
 			hasTestLab = true
+		}
+		if server.Description == "" {
+			t.Fatalf("expected server description in directory payload")
 		}
 	}
 	if !hasHarbor {
-		t.Fatalf("expected srv_harbor in servers payload")
+		t.Fatalf("expected harbor server id in servers payload")
 	}
 	if !hasTestLab {
-		t.Fatalf("expected srv_testlab in servers payload")
+		t.Fatalf("expected testlab server id in servers payload")
 	}
 }
 
@@ -142,7 +147,7 @@ func TestLeaveServerMembershipRemovesServerFromRequesterDirectory(t *testing.T) 
 	requesterUID := "uid_leave_test"
 	requesterDeviceID := "desktop_test"
 
-	leaveReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/v1/servers/srv_testlab/membership", nil)
+	leaveReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/v1/servers/"+chat.SeedServerIDTestLab+"/membership", nil)
 	if err != nil {
 		t.Fatalf("build leave request: %v", err)
 	}
@@ -187,8 +192,8 @@ func TestLeaveServerMembershipRemovesServerFromRequesterDirectory(t *testing.T) 
 	if len(requesterPayload.Servers) != 1 {
 		t.Fatalf("expected 1 server after leave action, got %d", len(requesterPayload.Servers))
 	}
-	if requesterPayload.Servers[0].ServerID != "srv_harbor" {
-		t.Fatalf("expected remaining server srv_harbor, got %s", requesterPayload.Servers[0].ServerID)
+	if requesterPayload.Servers[0].ServerID != chat.SeedServerIDHarbor {
+		t.Fatalf("expected remaining harbor server id, got %s", requesterPayload.Servers[0].ServerID)
 	}
 
 	otherReq, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/servers", nil)

@@ -76,11 +76,16 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	if deviceID == "" {
 		deviceID = "dev_local"
 	}
+	serverID := strings.TrimSpace(r.Header.Get("X-OpenChat-Server-ID"))
+	if serverID == "" {
+		serverID = strings.TrimSpace(r.URL.Query().Get("server_id"))
+	}
 
 	client := &client{
 		id:            uuid.NewString(),
 		userUID:       userUID,
 		deviceID:      deviceID,
+		serverID:      serverID,
 		conn:          conn,
 		hub:           h,
 		send:          make(chan Envelope, 64),
@@ -127,6 +132,88 @@ func (h *Hub) BroadcastReadAck(update chat.ChannelReadAckUpdate) {
 	for _, client := range room {
 		client.enqueue(envelope)
 	}
+}
+
+func (h *Hub) BroadcastChannelCreated(event chat.ChannelCreatedEvent) {
+	serverID := strings.TrimSpace(event.ServerID)
+	if serverID == "" {
+		return
+	}
+	clients := h.clientsForServer(serverID)
+	if len(clients) == 0 {
+		return
+	}
+
+	envelope := newEnvelope("chat.channel.created", "", map[string]any{
+		"event_id":       "evt_" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""),
+		"server_id":      event.ServerID,
+		"group_id":       event.GroupID,
+		"channel":        event.Channel,
+		"created_by_uid": event.CreatedByUID,
+		"created_at":     event.CreatedAt,
+	})
+	for _, c := range clients {
+		c.enqueue(envelope)
+	}
+}
+
+func (h *Hub) BroadcastCategoryCreated(event chat.CategoryCreatedEvent) {
+	serverID := strings.TrimSpace(event.ServerID)
+	if serverID == "" {
+		return
+	}
+	clients := h.clientsForServer(serverID)
+	if len(clients) == 0 {
+		return
+	}
+
+	envelope := newEnvelope("chat.category.created", "", map[string]any{
+		"event_id":       "evt_" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""),
+		"server_id":      event.ServerID,
+		"group":          event.Group,
+		"created_by_uid": event.CreatedByUID,
+		"created_at":     event.CreatedAt,
+	})
+	for _, c := range clients {
+		c.enqueue(envelope)
+	}
+}
+
+func (h *Hub) BroadcastServerUpdated(event chat.ServerUpdatedEvent) {
+	serverID := strings.TrimSpace(event.ServerID)
+	if serverID == "" {
+		return
+	}
+	clients := h.clientsForServer(serverID)
+	if len(clients) == 0 {
+		return
+	}
+
+	envelope := newEnvelope("chat.server.updated", "", map[string]any{
+		"event_id":       "evt_" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""),
+		"server_id":      event.ServerID,
+		"display_name":   event.DisplayName,
+		"description":    event.Description,
+		"banner_preset":  event.BannerPreset,
+		"updated_by_uid": event.UpdatedByUID,
+		"updated_at":     event.UpdatedAt,
+	})
+	for _, c := range clients {
+		c.enqueue(envelope)
+	}
+}
+
+func (h *Hub) clientsForServer(serverID string) []*client {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	clients := make([]*client, 0, len(h.clientsByID))
+	for _, c := range h.clientsByID {
+		if strings.TrimSpace(c.serverID) != serverID {
+			continue
+		}
+		clients = append(clients, c)
+	}
+	return clients
 }
 
 func (h *Hub) BroadcastProfileUpdated(updated profile.CanonicalProfile) {
@@ -260,6 +347,7 @@ type client struct {
 	id       string
 	userUID  string
 	deviceID string
+	serverID string
 	conn     *websocket.Conn
 	hub      *Hub
 	send     chan Envelope

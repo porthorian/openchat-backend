@@ -25,6 +25,11 @@ const (
 	ChannelTypeVoice ChannelType = "voice"
 )
 
+const (
+	SeedServerIDHarbor  = "0d5f6a8b-1f43-4f4f-9d8e-9ab6f913f4f8"
+	SeedServerIDTestLab = "6b6d8f24-a39f-4f8a-9f9d-0f70f2a2e9f1"
+)
+
 type Channel struct {
 	ID          string      `json:"id"`
 	Name        string      `json:"name"`
@@ -83,15 +88,51 @@ type AttachmentUploadInput struct {
 type ServerDirectoryEntry struct {
 	ServerID                  string `json:"server_id"`
 	DisplayName               string `json:"display_name"`
+	Description               string `json:"description"`
+	BannerPreset              string `json:"banner_preset,omitempty"`
 	IconText                  string `json:"icon_text"`
 	TrustState                string `json:"trust_state"`
 	IdentityHandshakeStrategy string `json:"identity_handshake_strategy"`
 	UserIdentifierPolicy      string `json:"user_identifier_policy"`
 }
 
+type ServerSettings struct {
+	ServerID     string `json:"server_id"`
+	DisplayName  string `json:"display_name"`
+	Description  string `json:"description"`
+	BannerPreset string `json:"banner_preset"`
+}
+
 type MessageBroadcaster interface {
 	BroadcastMessage(message Message)
 	BroadcastReadAck(update ChannelReadAckUpdate)
+	BroadcastChannelCreated(event ChannelCreatedEvent)
+	BroadcastCategoryCreated(event CategoryCreatedEvent)
+	BroadcastServerUpdated(event ServerUpdatedEvent)
+}
+
+type ChannelCreatedEvent struct {
+	ServerID     string  `json:"server_id"`
+	GroupID      string  `json:"group_id"`
+	Channel      Channel `json:"channel"`
+	CreatedByUID string  `json:"created_by_uid"`
+	CreatedAt    string  `json:"created_at"`
+}
+
+type CategoryCreatedEvent struct {
+	ServerID     string       `json:"server_id"`
+	Group        ChannelGroup `json:"group"`
+	CreatedByUID string       `json:"created_by_uid"`
+	CreatedAt    string       `json:"created_at"`
+}
+
+type ServerUpdatedEvent struct {
+	ServerID     string `json:"server_id"`
+	DisplayName  string `json:"display_name"`
+	Description  string `json:"description"`
+	BannerPreset string `json:"banner_preset"`
+	UpdatedByUID string `json:"updated_by_uid"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 type Service struct {
@@ -107,6 +148,7 @@ type Service struct {
 	attachmentsByID       map[string]attachmentBlob
 	channelServerByID     map[string]string
 	channelTypeByID       map[string]ChannelType
+	ownerUserUIDByServer  map[string]string
 	leftServersByUser     map[string]map[string]time.Time
 
 	maxAttachmentBytes       int
@@ -130,6 +172,17 @@ var (
 	ErrTooManyAttachments        = errors.New("too many attachments")
 	ErrAttachmentNotFound        = errors.New("attachment not found")
 	ErrReplyTargetNotFound       = errors.New("reply target message not found")
+	ErrChannelNameInvalid        = errors.New("channel name is invalid")
+	ErrChannelTypeUnsupported    = errors.New("channel type unsupported")
+	ErrChannelGroupNotFound      = errors.New("channel group not found")
+	ErrChannelCreateForbidden    = errors.New("channel create is forbidden")
+	ErrCategoryNameInvalid       = errors.New("category name is invalid")
+	ErrCategoryKindUnsupported   = errors.New("category kind unsupported")
+	ErrCategoryCreateForbidden   = errors.New("category create is forbidden")
+	ErrServerSettingsForbidden   = errors.New("server settings update is forbidden")
+	ErrServerDisplayNameInvalid  = errors.New("server display name is invalid")
+	ErrServerDescriptionInvalid  = errors.New("server description is invalid")
+	ErrServerBannerPresetInvalid = errors.New("server banner preset is invalid")
 )
 
 func NewService(publicBaseURL string) *Service {
@@ -143,6 +196,7 @@ func NewService(publicBaseURL string) *Service {
 		attachmentsByID:          make(map[string]attachmentBlob),
 		channelServerByID:        make(map[string]string),
 		channelTypeByID:          make(map[string]ChannelType),
+		ownerUserUIDByServer:     make(map[string]string),
 		leftServersByUser:        make(map[string]map[string]time.Time),
 		maxAttachmentBytes:       50 * 1024 * 1024,
 		maxAttachmentsPerMessage: 4,
@@ -456,6 +510,267 @@ func (s *Service) LeaveServer(serverID string, userUID string) error {
 	return nil
 }
 
+func (s *Service) CreateChannel(serverID string, userUID string, groupID string, name string, channelType ChannelType) (ChannelCreatedEvent, error) {
+	serverID = strings.TrimSpace(serverID)
+	userUID = strings.TrimSpace(userUID)
+	groupID = strings.TrimSpace(groupID)
+	name = strings.TrimSpace(name)
+
+	if serverID == "" {
+		return ChannelCreatedEvent{}, fmt.Errorf("unknown server id: %s", serverID)
+	}
+	if userUID == "" {
+		return ChannelCreatedEvent{}, errors.New("user uid is required")
+	}
+	if groupID == "" {
+		return ChannelCreatedEvent{}, ErrChannelGroupNotFound
+	}
+	if name == "" || len([]rune(name)) > 100 {
+		return ChannelCreatedEvent{}, ErrChannelNameInvalid
+	}
+	if channelType != ChannelTypeText && channelType != ChannelTypeVoice {
+		return ChannelCreatedEvent{}, ErrChannelTypeUnsupported
+	}
+
+	s.mu.Lock()
+	groups, ok := s.channelGroupsByServer[serverID]
+	if !ok {
+		s.mu.Unlock()
+		return ChannelCreatedEvent{}, fmt.Errorf("unknown server id: %s", serverID)
+	}
+
+	ownerUID := s.ensureServerOwnerLocked(serverID, userUID)
+	if ownerUID != userUID {
+		s.mu.Unlock()
+		return ChannelCreatedEvent{}, ErrChannelCreateForbidden
+	}
+
+	targetGroupIndex := -1
+	for index, group := range groups {
+		if strings.TrimSpace(group.ID) == groupID {
+			targetGroupIndex = index
+			break
+		}
+	}
+	if targetGroupIndex < 0 {
+		s.mu.Unlock()
+		return ChannelCreatedEvent{}, ErrChannelGroupNotFound
+	}
+
+	channelPrefix := "ch_"
+	if channelType == ChannelTypeVoice {
+		channelPrefix = "vc_"
+	}
+	channelID := ""
+	for {
+		candidate := channelPrefix + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
+		if _, exists := s.channelTypeByID[candidate]; exists {
+			continue
+		}
+		channelID = candidate
+		break
+	}
+
+	channel := Channel{
+		ID:   channelID,
+		Name: name,
+		Type: channelType,
+	}
+	groups[targetGroupIndex].Channels = append(groups[targetGroupIndex].Channels, channel)
+	s.channelGroupsByServer[serverID] = groups
+	s.channelServerByID[channelID] = serverID
+	s.channelTypeByID[channelID] = channelType
+	s.messagesByChannel[channelID] = []Message{}
+
+	createdEvent := ChannelCreatedEvent{
+		ServerID:     serverID,
+		GroupID:      groupID,
+		Channel:      channel,
+		CreatedByUID: userUID,
+		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+	broadcaster := s.broadcaster
+	s.mu.Unlock()
+
+	if broadcaster != nil {
+		broadcaster.BroadcastChannelCreated(cloneChannelCreatedEvent(createdEvent))
+	}
+
+	return cloneChannelCreatedEvent(createdEvent), nil
+}
+
+func (s *Service) CreateCategory(serverID string, userUID string, name string, kind string) (CategoryCreatedEvent, error) {
+	serverID = strings.TrimSpace(serverID)
+	userUID = strings.TrimSpace(userUID)
+	name = strings.TrimSpace(name)
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		kind = string(ChannelTypeText)
+	}
+
+	if serverID == "" {
+		return CategoryCreatedEvent{}, fmt.Errorf("unknown server id: %s", serverID)
+	}
+	if userUID == "" {
+		return CategoryCreatedEvent{}, errors.New("user uid is required")
+	}
+	if name == "" || len([]rune(name)) > 100 {
+		return CategoryCreatedEvent{}, ErrCategoryNameInvalid
+	}
+	if kind != string(ChannelTypeText) && kind != string(ChannelTypeVoice) {
+		return CategoryCreatedEvent{}, ErrCategoryKindUnsupported
+	}
+
+	s.mu.Lock()
+	groups, ok := s.channelGroupsByServer[serverID]
+	if !ok {
+		s.mu.Unlock()
+		return CategoryCreatedEvent{}, fmt.Errorf("unknown server id: %s", serverID)
+	}
+
+	ownerUID := s.ensureServerOwnerLocked(serverID, userUID)
+	if ownerUID != userUID {
+		s.mu.Unlock()
+		return CategoryCreatedEvent{}, ErrCategoryCreateForbidden
+	}
+
+	groupID := "grp_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
+	group := ChannelGroup{
+		ID:       groupID,
+		Label:    name,
+		Kind:     kind,
+		Channels: []Channel{},
+	}
+	s.channelGroupsByServer[serverID] = append(groups, group)
+
+	created := CategoryCreatedEvent{
+		ServerID:     serverID,
+		Group:        group,
+		CreatedByUID: userUID,
+		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+	broadcaster := s.broadcaster
+	s.mu.Unlock()
+
+	if broadcaster != nil {
+		broadcaster.BroadcastCategoryCreated(cloneCategoryCreatedEvent(created))
+	}
+	return cloneCategoryCreatedEvent(created), nil
+}
+
+func (s *Service) GetServerSettings(serverID string) (ServerSettings, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return ServerSettings{}, fmt.Errorf("unknown server id: %s", serverID)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	entry, ok := s.findServerEntryLocked(serverID)
+	if !ok {
+		return ServerSettings{}, fmt.Errorf("unknown server id: %s", serverID)
+	}
+	return ServerSettings{
+		ServerID:     entry.ServerID,
+		DisplayName:  entry.DisplayName,
+		Description:  entry.Description,
+		BannerPreset: entry.BannerPreset,
+	}, nil
+}
+
+func (s *Service) UpdateServerSettings(
+	serverID string,
+	userUID string,
+	displayName string,
+	description string,
+	bannerPreset string,
+) (ServerUpdatedEvent, error) {
+	serverID = strings.TrimSpace(serverID)
+	userUID = strings.TrimSpace(userUID)
+	displayName = strings.TrimSpace(displayName)
+	description = strings.TrimSpace(description)
+	bannerPreset = strings.TrimSpace(strings.ToLower(bannerPreset))
+
+	if serverID == "" {
+		return ServerUpdatedEvent{}, fmt.Errorf("unknown server id: %s", serverID)
+	}
+	if userUID == "" {
+		return ServerUpdatedEvent{}, errors.New("user uid is required")
+	}
+	if displayName == "" || len([]rune(displayName)) > 100 {
+		return ServerUpdatedEvent{}, ErrServerDisplayNameInvalid
+	}
+	if len([]rune(description)) > 280 {
+		return ServerUpdatedEvent{}, ErrServerDescriptionInvalid
+	}
+	if !isValidBannerPreset(bannerPreset) {
+		return ServerUpdatedEvent{}, ErrServerBannerPresetInvalid
+	}
+
+	s.mu.Lock()
+	serverIndex := s.findServerIndexLocked(serverID)
+	if serverIndex < 0 {
+		s.mu.Unlock()
+		return ServerUpdatedEvent{}, fmt.Errorf("unknown server id: %s", serverID)
+	}
+
+	ownerUID := s.ensureServerOwnerLocked(serverID, userUID)
+	if ownerUID != userUID {
+		s.mu.Unlock()
+		return ServerUpdatedEvent{}, ErrServerSettingsForbidden
+	}
+
+	entry := s.servers[serverIndex]
+	entry.DisplayName = displayName
+	entry.Description = description
+	entry.BannerPreset = bannerPreset
+	entry.IconText = deriveIconText(displayName, entry.IconText)
+	s.servers[serverIndex] = entry
+
+	updated := ServerUpdatedEvent{
+		ServerID:     serverID,
+		DisplayName:  entry.DisplayName,
+		Description:  entry.Description,
+		BannerPreset: entry.BannerPreset,
+		UpdatedByUID: userUID,
+		UpdatedAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+	broadcaster := s.broadcaster
+	s.mu.Unlock()
+
+	if broadcaster != nil {
+		broadcaster.BroadcastServerUpdated(cloneServerUpdatedEvent(updated))
+	}
+	return cloneServerUpdatedEvent(updated), nil
+}
+
+func (s *Service) ensureServerOwnerLocked(serverID string, userUID string) string {
+	ownerUID := strings.TrimSpace(s.ownerUserUIDByServer[serverID])
+	if ownerUID == "" {
+		ownerUID = userUID
+		s.ownerUserUIDByServer[serverID] = ownerUID
+	}
+	return ownerUID
+}
+
+func (s *Service) findServerIndexLocked(serverID string) int {
+	for index, server := range s.servers {
+		if strings.TrimSpace(server.ServerID) == serverID {
+			return index
+		}
+	}
+	return -1
+}
+
+func (s *Service) findServerEntryLocked(serverID string) (ServerDirectoryEntry, bool) {
+	index := s.findServerIndexLocked(serverID)
+	if index < 0 {
+		return ServerDirectoryEntry{}, false
+	}
+	return s.servers[index], true
+}
+
 func (s *Service) indexChannels() {
 	for serverID, groups := range s.channelGroupsByServer {
 		for _, group := range groups {
@@ -515,6 +830,36 @@ func cloneMessageAttachment(attachment MessageAttachment) MessageAttachment {
 	return attachment
 }
 
+func cloneChannelCreatedEvent(event ChannelCreatedEvent) ChannelCreatedEvent {
+	return ChannelCreatedEvent{
+		ServerID:     event.ServerID,
+		GroupID:      event.GroupID,
+		Channel:      event.Channel,
+		CreatedByUID: event.CreatedByUID,
+		CreatedAt:    event.CreatedAt,
+	}
+}
+
+func cloneCategoryCreatedEvent(event CategoryCreatedEvent) CategoryCreatedEvent {
+	return CategoryCreatedEvent{
+		ServerID:     event.ServerID,
+		Group:        cloneGroups([]ChannelGroup{event.Group})[0],
+		CreatedByUID: event.CreatedByUID,
+		CreatedAt:    event.CreatedAt,
+	}
+}
+
+func cloneServerUpdatedEvent(event ServerUpdatedEvent) ServerUpdatedEvent {
+	return ServerUpdatedEvent{
+		ServerID:     event.ServerID,
+		DisplayName:  event.DisplayName,
+		Description:  event.Description,
+		BannerPreset: event.BannerPreset,
+		UpdatedByUID: event.UpdatedByUID,
+		UpdatedAt:    event.UpdatedAt,
+	}
+}
+
 func (s *Service) attachmentURL(channelID string, attachmentID string) string {
 	path := fmt.Sprintf("/v1/channels/%s/attachments/%s", channelID, attachmentID)
 	if s.publicBaseURL == "" {
@@ -555,19 +900,58 @@ func normalizeAttachmentFileName(fileName string, contentType string) string {
 	}
 }
 
+func deriveIconText(displayName string, fallback string) string {
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" {
+		fallback = strings.TrimSpace(strings.ToUpper(fallback))
+		if fallback == "" {
+			return "SV"
+		}
+		if len(fallback) > 2 {
+			return fallback[:2]
+		}
+		return fallback
+	}
+	parts := strings.Fields(displayName)
+	if len(parts) >= 2 {
+		return strings.ToUpper(string([]rune(parts[0])[0]) + string([]rune(parts[1])[0]))
+	}
+	runes := []rune(strings.ToUpper(displayName))
+	if len(runes) == 1 {
+		return string(runes[0])
+	}
+	if len(runes) >= 2 {
+		return string(runes[:2])
+	}
+	return "SV"
+}
+
+func isValidBannerPreset(value string) bool {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", "ocean", "sunset", "ember", "forest", "midnight", "orchid", "teal", "gold", "slate":
+		return true
+	default:
+		return false
+	}
+}
+
 func seedServerDirectory() []ServerDirectoryEntry {
 	return []ServerDirectoryEntry{
 		{
-			ServerID:                  "srv_harbor",
+			ServerID:                  SeedServerIDHarbor,
 			DisplayName:               "Harbor Guild",
+			Description:               "Core OpenChat workspace for day-to-day collaboration.",
+			BannerPreset:              "ocean",
 			IconText:                  "HG",
 			TrustState:                "verified",
 			IdentityHandshakeStrategy: "challenge_signature",
 			UserIdentifierPolicy:      "server_scoped",
 		},
 		{
-			ServerID:                  "srv_testlab",
+			ServerID:                  SeedServerIDTestLab,
 			DisplayName:               "TestLab Server",
+			Description:               "Experimental server used for integration and QA checks.",
+			BannerPreset:              "slate",
 			IconText:                  "TL",
 			TrustState:                "verified",
 			IdentityHandshakeStrategy: "challenge_signature",
@@ -578,7 +962,7 @@ func seedServerDirectory() []ServerDirectoryEntry {
 
 func seedChannelGroups() map[string][]ChannelGroup {
 	return map[string][]ChannelGroup{
-		"srv_harbor": {
+		SeedServerIDHarbor: {
 			{
 				ID:    "grp_general",
 				Label: "general",
@@ -607,7 +991,7 @@ func seedChannelGroups() map[string][]ChannelGroup {
 				},
 			},
 		},
-		"srv_testlab": {
+		SeedServerIDTestLab: {
 			{
 				ID:    "grp_test_text",
 				Label: "test boards",
@@ -632,13 +1016,13 @@ func seedChannelGroups() map[string][]ChannelGroup {
 
 func seedMembers() map[string][]Member {
 	return map[string][]Member{
-		"srv_harbor": {
+		SeedServerIDHarbor: {
 			{ID: "mem_1", Name: "Lyra", Status: "online"},
 			{ID: "mem_2", Name: "Orin", Status: "idle"},
 			{ID: "mem_3", Name: "Mira", Status: "online"},
 			{ID: "mem_4", Name: "Calix", Status: "dnd"},
 		},
-		"srv_testlab": {
+		SeedServerIDTestLab: {
 			{ID: "mem_t1", Name: "Devon", Status: "online"},
 			{ID: "mem_t2", Name: "Rhea", Status: "idle"},
 			{ID: "mem_t3", Name: "Pax", Status: "online"},

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/openchat/openchat-backend/internal/app"
+	"github.com/openchat/openchat-backend/internal/chat"
 )
 
 func TestIssueJoinTicketIncludesEffectiveSubscribeReceivePolicy(t *testing.T) {
@@ -24,10 +25,10 @@ func TestIssueJoinTicketIncludesEffectiveSubscribeReceivePolicy(t *testing.T) {
 		RTCSubscribeMaxVideoTracks: 8,
 		RTCSubscribeMaxAudioTracks: 16,
 		RTCSubscribeMaxVideoTracksByServer: map[string]int{
-			"srv_harbor": 6,
+			chat.SeedServerIDHarbor: 6,
 		},
 		RTCSubscribeMaxAudioTracksByServer: map[string]int{
-			"srv_harbor": 12,
+			chat.SeedServerIDHarbor: 12,
 		},
 		RTCSubscribeMaxVideoTracksByChannel: map[string]int{
 			"vc_general": 3,
@@ -40,7 +41,7 @@ func TestIssueJoinTicketIncludesEffectiveSubscribeReceivePolicy(t *testing.T) {
 	ts := httptest.NewServer(server.Router())
 	defer ts.Close()
 
-	resp := joinTicketRequestForTest(t, ts.URL, "vc_general", "srv_harbor")
+	resp := joinTicketRequestForTest(t, ts.URL, "vc_general", chat.SeedServerIDHarbor)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(resp.Body)
@@ -57,14 +58,14 @@ func TestIssueJoinTicketIncludesEffectiveSubscribeReceivePolicy(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode join ticket response: %v", err)
 	}
-	if payload.ServerID != "srv_harbor" {
-		t.Fatalf("expected server_id srv_harbor, got %s", payload.ServerID)
+	if payload.ServerID != chat.SeedServerIDHarbor {
+		t.Fatalf("expected harbor server id, got %s", payload.ServerID)
 	}
 	if payload.SubscribeReceivePolicy.MaxVideoTracks != 3 || payload.SubscribeReceivePolicy.MaxAudioTracks != 9 {
 		t.Fatalf("expected channel overrides (3/9), got %+v", payload.SubscribeReceivePolicy)
 	}
 
-	serverOnlyResp := joinTicketRequestForTest(t, ts.URL, "vc_party", "srv_harbor")
+	serverOnlyResp := joinTicketRequestForTest(t, ts.URL, "vc_party", chat.SeedServerIDHarbor)
 	defer serverOnlyResp.Body.Close()
 	if serverOnlyResp.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(serverOnlyResp.Body)
@@ -97,7 +98,7 @@ func TestIssueJoinTicketRejectsChannelServerMismatch(t *testing.T) {
 	ts := httptest.NewServer(server.Router())
 	defer ts.Close()
 
-	resp := joinTicketRequestForTest(t, ts.URL, "tl_vc_huddle", "srv_harbor")
+	resp := joinTicketRequestForTest(t, ts.URL, "tl_vc_huddle", chat.SeedServerIDHarbor)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		payload, _ := io.ReadAll(resp.Body)

@@ -73,13 +73,13 @@ func TestLoadConfigFromEnv_DefaultSubscribeReceiveLimits(t *testing.T) {
 }
 
 func TestLoadConfigFromEnv_SubscribeReceiveOverrideMaps(t *testing.T) {
-	t.Setenv("OPENCHAT_RTC_SUBSCRIBE_MAX_VIDEO_TRACKS_BY_SERVER", "srv_harbor=10,srv_testlab=6,srv_bad=0,srv_bad2=-1,srv_bad3=nope")
+	t.Setenv("OPENCHAT_RTC_SUBSCRIBE_MAX_VIDEO_TRACKS_BY_SERVER", "0d5f6a8b-1f43-4f4f-9d8e-9ab6f913f4f8=10,6b6d8f24-a39f-4f8a-9f9d-0f70f2a2e9f1=6,srv_bad=0,srv_bad2=-1,srv_bad3=nope")
 	t.Setenv("OPENCHAT_RTC_SUBSCRIBE_MAX_AUDIO_TRACKS_BY_CHANNEL", "vc_general=20,tl_vc_huddle=12,invalid,noequal")
 
 	cfg := LoadConfigFromEnv()
 	expectedVideoByServer := map[string]int{
-		"srv_harbor":  10,
-		"srv_testlab": 6,
+		"0d5f6a8b-1f43-4f4f-9d8e-9ab6f913f4f8": 10,
+		"6b6d8f24-a39f-4f8a-9f9d-0f70f2a2e9f1": 6,
 	}
 	if !reflect.DeepEqual(cfg.RTCSubscribeMaxVideoTracksByServer, expectedVideoByServer) {
 		t.Fatalf("unexpected video overrides by server: %#v", cfg.RTCSubscribeMaxVideoTracksByServer)
@@ -98,10 +98,10 @@ func TestConfigResolveRTCSubscribeReceiveLimitsPrecedence(t *testing.T) {
 		RTCSubscribeMaxVideoTracks: 8,
 		RTCSubscribeMaxAudioTracks: 16,
 		RTCSubscribeMaxVideoTracksByServer: map[string]int{
-			"srv_harbor": 6,
+			"0d5f6a8b-1f43-4f4f-9d8e-9ab6f913f4f8": 6,
 		},
 		RTCSubscribeMaxAudioTracksByServer: map[string]int{
-			"srv_harbor": 12,
+			"0d5f6a8b-1f43-4f4f-9d8e-9ab6f913f4f8": 12,
 		},
 		RTCSubscribeMaxVideoTracksByChannel: map[string]int{
 			"vc_general": 3,
@@ -111,12 +111,12 @@ func TestConfigResolveRTCSubscribeReceiveLimitsPrecedence(t *testing.T) {
 		},
 	}
 
-	channelOverride := cfg.ResolveRTCSubscribeReceiveLimits("srv_harbor", "vc_general")
+	channelOverride := cfg.ResolveRTCSubscribeReceiveLimits("0d5f6a8b-1f43-4f4f-9d8e-9ab6f913f4f8", "vc_general")
 	if channelOverride.MaxVideoTracks != 3 || channelOverride.MaxAudioTracks != 9 {
 		t.Fatalf("expected channel overrides (3/9), got %+v", channelOverride)
 	}
 
-	serverOverride := cfg.ResolveRTCSubscribeReceiveLimits("srv_harbor", "vc_party")
+	serverOverride := cfg.ResolveRTCSubscribeReceiveLimits("0d5f6a8b-1f43-4f4f-9d8e-9ab6f913f4f8", "vc_party")
 	if serverOverride.MaxVideoTracks != 6 || serverOverride.MaxAudioTracks != 12 {
 		t.Fatalf("expected server overrides (6/12), got %+v", serverOverride)
 	}
@@ -132,7 +132,7 @@ func TestConfigResolveRTCSubscribeReceiveLimitsUsesDefaultsWhenUnset(t *testing.
 		RTCSubscribeMaxVideoTracks: 0,
 		RTCSubscribeMaxAudioTracks: -4,
 	}
-	limits := cfg.ResolveRTCSubscribeReceiveLimits("srv_harbor", "vc_general")
+	limits := cfg.ResolveRTCSubscribeReceiveLimits("0d5f6a8b-1f43-4f4f-9d8e-9ab6f913f4f8", "vc_general")
 	if limits.MaxVideoTracks != 8 || limits.MaxAudioTracks != 16 {
 		t.Fatalf("expected default limits (8/16), got %+v", limits)
 	}
