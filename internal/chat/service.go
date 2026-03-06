@@ -224,9 +224,11 @@ var (
 	ErrChannelCreateForbidden    = errors.New("channel create is forbidden")
 	ErrCategoryNameInvalid       = errors.New("category name is invalid")
 	ErrCategoryNotFound          = errors.New("category not found")
+	ErrCategoryNotEmpty          = errors.New("category is not empty")
 	ErrCategoryKindUnsupported   = errors.New("category kind unsupported")
 	ErrCategoryCreateForbidden   = errors.New("category create is forbidden")
 	ErrCategoryUpdateForbidden   = errors.New("category update is forbidden")
+	ErrCategoryDeleteForbidden   = errors.New("category delete is forbidden")
 	ErrChannelLayoutInvalid      = errors.New("channel layout is invalid")
 	ErrChannelLayoutForbidden    = errors.New("channel layout update is forbidden")
 	ErrServerSettingsForbidden   = errors.New("server settings update is forbidden")
@@ -944,6 +946,76 @@ func (s *Service) UpdateCategory(serverID string, userUID string, groupID string
 		broadcaster.BroadcastCategoryUpdated(cloneCategoryUpdatedEvent(updated))
 	}
 	return cloneCategoryUpdatedEvent(updated), nil
+}
+
+func (s *Service) DeleteCategory(serverID string, userUID string, groupID string) (ChannelLayoutUpdatedEvent, error) {
+	serverID = strings.TrimSpace(serverID)
+	userUID = strings.TrimSpace(userUID)
+	groupID = strings.TrimSpace(groupID)
+
+	if serverID == "" {
+		return ChannelLayoutUpdatedEvent{}, fmt.Errorf("unknown server id: %s", serverID)
+	}
+	if userUID == "" {
+		return ChannelLayoutUpdatedEvent{}, errors.New("user uid is required")
+	}
+	if groupID == "" {
+		return ChannelLayoutUpdatedEvent{}, ErrCategoryNotFound
+	}
+
+	s.mu.Lock()
+	groups, ok := s.channelGroupsByServer[serverID]
+	if !ok {
+		s.mu.Unlock()
+		return ChannelLayoutUpdatedEvent{}, fmt.Errorf("unknown server id: %s", serverID)
+	}
+
+	ownerUID, ownerResolveErr := s.resolveOwnerForMutationLocked(serverID, userUID)
+	if ownerResolveErr != nil {
+		s.mu.Unlock()
+		return ChannelLayoutUpdatedEvent{}, ownerResolveErr
+	}
+	if ownerUID != userUID {
+		s.mu.Unlock()
+		return ChannelLayoutUpdatedEvent{}, ErrCategoryDeleteForbidden
+	}
+
+	targetGroupIndex := -1
+	for index, group := range groups {
+		if strings.TrimSpace(group.ID) != groupID {
+			continue
+		}
+		targetGroupIndex = index
+		break
+	}
+	if targetGroupIndex < 0 {
+		s.mu.Unlock()
+		return ChannelLayoutUpdatedEvent{}, ErrCategoryNotFound
+	}
+
+	if len(groups[targetGroupIndex].Channels) > 0 {
+		s.mu.Unlock()
+		return ChannelLayoutUpdatedEvent{}, ErrCategoryNotEmpty
+	}
+
+	nextGroups := make([]ChannelGroup, 0, len(groups)-1)
+	nextGroups = append(nextGroups, groups[:targetGroupIndex]...)
+	nextGroups = append(nextGroups, groups[targetGroupIndex+1:]...)
+	s.channelGroupsByServer[serverID] = nextGroups
+
+	updated := ChannelLayoutUpdatedEvent{
+		ServerID:     serverID,
+		Groups:       cloneGroups(nextGroups),
+		UpdatedByUID: userUID,
+		UpdatedAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+	broadcaster := s.broadcaster
+	s.mu.Unlock()
+
+	if broadcaster != nil {
+		broadcaster.BroadcastChannelLayoutUpdated(cloneChannelLayoutUpdatedEvent(updated))
+	}
+	return cloneChannelLayoutUpdatedEvent(updated), nil
 }
 
 func (s *Service) UpdateChannelLayout(serverID string, userUID string, layout []ChannelLayoutGroup) (ChannelLayoutUpdatedEvent, error) {

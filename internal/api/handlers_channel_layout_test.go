@@ -269,3 +269,208 @@ func TestUpdateCategoryAndChannelLayoutOwnerGateAndValidation(t *testing.T) {
 		t.Fatalf("expected invalid_channel_layout code, got %s", invalidLayoutPayload.Code)
 	}
 }
+
+func TestDeleteCategoryEndpointValidationAndOwnerGate(t *testing.T) {
+	cfg := app.Config{
+		HTTPAddr:      ":0",
+		PublicBaseURL: "http://localhost:8080",
+		SignalingPath: "/v1/rtc/signaling",
+		TicketTTL:     60 * time.Second,
+		TicketSecret:  "test-secret",
+		Environment:   "test",
+	}
+	server := NewServer(cfg, slog.Default())
+	ts := httptest.NewServer(server.Router())
+	defer ts.Close()
+
+	createPayloadRaw, err := json.Marshal(map[string]any{
+		"name": "Delete Me",
+		"kind": "text",
+	})
+	if err != nil {
+		t.Fatalf("marshal create payload: %v", err)
+	}
+	createReq, err := http.NewRequest(
+		http.MethodPost,
+		ts.URL+"/v1/servers/"+chat.SeedServerIDHarbor+"/categories",
+		bytes.NewReader(createPayloadRaw),
+	)
+	if err != nil {
+		t.Fatalf("build create request: %v", err)
+	}
+	createReq.Header.Set("X-OpenChat-User-UID", "uid_owner")
+	createReq.Header.Set("X-OpenChat-Device-ID", "desktop_owner")
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create category request failed: %v", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(createResp.Body)
+		t.Fatalf("expected create category success, got %d body=%s", createResp.StatusCode, string(body))
+	}
+	var created struct {
+		Group struct {
+			ID string `json:"id"`
+		} `json:"group"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created payload: %v", err)
+	}
+	if created.Group.ID == "" {
+		t.Fatalf("expected created group id")
+	}
+
+	deleteReq, err := http.NewRequest(
+		http.MethodDelete,
+		ts.URL+"/v1/servers/"+chat.SeedServerIDHarbor+"/categories/"+created.Group.ID,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build delete request: %v", err)
+	}
+	deleteReq.Header.Set("X-OpenChat-User-UID", "uid_owner")
+	deleteReq.Header.Set("X-OpenChat-Device-ID", "desktop_owner")
+	deleteResp, err := http.DefaultClient.Do(deleteReq)
+	if err != nil {
+		t.Fatalf("delete empty category request failed: %v", err)
+	}
+	defer deleteResp.Body.Close()
+	if deleteResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(deleteResp.Body)
+		t.Fatalf("expected empty delete success, got %d body=%s", deleteResp.StatusCode, string(body))
+	}
+	var deletedPayload struct {
+		Groups []struct {
+			ID string `json:"id"`
+		} `json:"groups"`
+	}
+	if err := json.NewDecoder(deleteResp.Body).Decode(&deletedPayload); err != nil {
+		t.Fatalf("decode delete payload: %v", err)
+	}
+	for _, group := range deletedPayload.Groups {
+		if group.ID == created.Group.ID {
+			t.Fatalf("expected deleted group to be absent from response groups")
+		}
+	}
+
+	nonEmptyReq, err := http.NewRequest(
+		http.MethodDelete,
+		ts.URL+"/v1/servers/"+chat.SeedServerIDHarbor+"/categories/grp_general",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build non-empty delete request: %v", err)
+	}
+	nonEmptyReq.Header.Set("X-OpenChat-User-UID", "uid_owner")
+	nonEmptyReq.Header.Set("X-OpenChat-Device-ID", "desktop_owner")
+	nonEmptyResp, err := http.DefaultClient.Do(nonEmptyReq)
+	if err != nil {
+		t.Fatalf("non-empty delete request failed: %v", err)
+	}
+	defer nonEmptyResp.Body.Close()
+	if nonEmptyResp.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(nonEmptyResp.Body)
+		t.Fatalf("expected category_not_empty bad request, got %d body=%s", nonEmptyResp.StatusCode, string(body))
+	}
+	var nonEmptyPayload struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(nonEmptyResp.Body).Decode(&nonEmptyPayload); err != nil {
+		t.Fatalf("decode non-empty delete payload: %v", err)
+	}
+	if nonEmptyPayload.Code != "category_not_empty" {
+		t.Fatalf("expected category_not_empty code, got %s", nonEmptyPayload.Code)
+	}
+
+	blockedCreateReq, err := http.NewRequest(
+		http.MethodPost,
+		ts.URL+"/v1/servers/"+chat.SeedServerIDHarbor+"/categories",
+		bytes.NewReader(createPayloadRaw),
+	)
+	if err != nil {
+		t.Fatalf("build blocked create request: %v", err)
+	}
+	blockedCreateReq.Header.Set("X-OpenChat-User-UID", "uid_owner")
+	blockedCreateReq.Header.Set("X-OpenChat-Device-ID", "desktop_owner")
+	blockedCreateReq.Header.Set("Content-Type", "application/json")
+	blockedCreateResp, err := http.DefaultClient.Do(blockedCreateReq)
+	if err != nil {
+		t.Fatalf("blocked create request failed: %v", err)
+	}
+	defer blockedCreateResp.Body.Close()
+	if blockedCreateResp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(blockedCreateResp.Body)
+		t.Fatalf("expected second create category success, got %d body=%s", blockedCreateResp.StatusCode, string(body))
+	}
+	var blockedCreated struct {
+		Group struct {
+			ID string `json:"id"`
+		} `json:"group"`
+	}
+	if err := json.NewDecoder(blockedCreateResp.Body).Decode(&blockedCreated); err != nil {
+		t.Fatalf("decode second created payload: %v", err)
+	}
+	if blockedCreated.Group.ID == "" {
+		t.Fatalf("expected second created group id")
+	}
+
+	forbiddenReq, err := http.NewRequest(
+		http.MethodDelete,
+		ts.URL+"/v1/servers/"+chat.SeedServerIDHarbor+"/categories/"+blockedCreated.Group.ID,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build forbidden delete request: %v", err)
+	}
+	forbiddenReq.Header.Set("X-OpenChat-User-UID", "uid_other")
+	forbiddenReq.Header.Set("X-OpenChat-Device-ID", "desktop_other")
+	forbiddenResp, err := http.DefaultClient.Do(forbiddenReq)
+	if err != nil {
+		t.Fatalf("forbidden delete request failed: %v", err)
+	}
+	defer forbiddenResp.Body.Close()
+	if forbiddenResp.StatusCode != http.StatusForbidden {
+		body, _ := io.ReadAll(forbiddenResp.Body)
+		t.Fatalf("expected category_delete_forbidden, got %d body=%s", forbiddenResp.StatusCode, string(body))
+	}
+	var forbiddenPayload struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(forbiddenResp.Body).Decode(&forbiddenPayload); err != nil {
+		t.Fatalf("decode forbidden payload: %v", err)
+	}
+	if forbiddenPayload.Code != "category_delete_forbidden" {
+		t.Fatalf("expected category_delete_forbidden code, got %s", forbiddenPayload.Code)
+	}
+
+	missingReq, err := http.NewRequest(
+		http.MethodDelete,
+		ts.URL+"/v1/servers/"+chat.SeedServerIDHarbor+"/categories/grp_missing",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build missing delete request: %v", err)
+	}
+	missingReq.Header.Set("X-OpenChat-User-UID", "uid_owner")
+	missingReq.Header.Set("X-OpenChat-Device-ID", "desktop_owner")
+	missingResp, err := http.DefaultClient.Do(missingReq)
+	if err != nil {
+		t.Fatalf("missing delete request failed: %v", err)
+	}
+	defer missingResp.Body.Close()
+	if missingResp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(missingResp.Body)
+		t.Fatalf("expected category_not_found, got %d body=%s", missingResp.StatusCode, string(body))
+	}
+	var missingPayload struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(missingResp.Body).Decode(&missingPayload); err != nil {
+		t.Fatalf("decode missing payload: %v", err)
+	}
+	if missingPayload.Code != "category_not_found" {
+		t.Fatalf("expected category_not_found code, got %s", missingPayload.Code)
+	}
+}

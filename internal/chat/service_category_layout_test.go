@@ -134,3 +134,58 @@ func TestUpdateChannelLayout_RequiresOwnershipClaimWhenPending(t *testing.T) {
 		t.Fatalf("expected ErrOwnershipClaimRequired before claim, got %v", err)
 	}
 }
+
+func TestDeleteCategory_RequiresEmptyCategoryAndOwner(t *testing.T) {
+	svc := NewService("http://localhost:8080")
+
+	created, err := svc.CreateCategory(SeedServerIDHarbor, "uid_owner", "Temporary Empty", "text")
+	if err != nil {
+		t.Fatalf("create empty category failed: %v", err)
+	}
+
+	updated, err := svc.DeleteCategory(SeedServerIDHarbor, "uid_owner", created.Group.ID)
+	if err != nil {
+		t.Fatalf("expected owner to delete empty category, got %v", err)
+	}
+	for _, group := range updated.Groups {
+		if group.ID == created.Group.ID {
+			t.Fatalf("expected deleted category to be absent from updated layout")
+		}
+	}
+
+	if _, err := svc.DeleteCategory(SeedServerIDHarbor, "uid_owner", "grp_general"); !errors.Is(err, ErrCategoryNotEmpty) {
+		t.Fatalf("expected ErrCategoryNotEmpty, got %v", err)
+	}
+
+	createdBlocked, err := svc.CreateCategory(SeedServerIDHarbor, "uid_owner", "Blocked Delete", "text")
+	if err != nil {
+		t.Fatalf("create second empty category failed: %v", err)
+	}
+	if _, err := svc.DeleteCategory(SeedServerIDHarbor, "uid_other", createdBlocked.Group.ID); !errors.Is(err, ErrCategoryDeleteForbidden) {
+		t.Fatalf("expected ErrCategoryDeleteForbidden, got %v", err)
+	}
+
+	if _, err := svc.DeleteCategory(SeedServerIDHarbor, "uid_owner", "grp_missing"); !errors.Is(err, ErrCategoryNotFound) {
+		t.Fatalf("expected ErrCategoryNotFound, got %v", err)
+	}
+}
+
+func TestDeleteCategory_RequiresOwnershipClaimWhenPending(t *testing.T) {
+	svc := NewService("http://localhost:8080")
+	created, err := svc.CreateServer("uid_creator", "Created Server", "", "ocean")
+	if err != nil {
+		t.Fatalf("create server failed: %v", err)
+	}
+
+	groups, err := svc.ListChannelGroups(created.Server.ServerID)
+	if err != nil {
+		t.Fatalf("list channel groups failed: %v", err)
+	}
+	if len(groups) == 0 {
+		t.Fatalf("expected seeded category")
+	}
+
+	if _, err := svc.DeleteCategory(created.Server.ServerID, "uid_creator", groups[0].ID); !errors.Is(err, ErrOwnershipClaimRequired) {
+		t.Fatalf("expected ErrOwnershipClaimRequired before claim, got %v", err)
+	}
+}

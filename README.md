@@ -99,6 +99,7 @@ For tagged builds, set `BUILD_VERSION` to the tag value you publish (for example
 - `POST /v1/servers/:server_id/ownership:claim`
 - `POST /v1/servers/:server_id/channels`
 - `POST /v1/servers/:server_id/categories`
+- `DELETE /v1/servers/:server_id/categories/:group_id`
 - `GET /v1/servers/:server_id/settings`
 - `PUT /v1/servers/:server_id/settings`
 - `DELETE /v1/servers/:server_id/membership`

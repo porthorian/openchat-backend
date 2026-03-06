@@ -181,6 +181,46 @@ func (s *Server) putCategory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) deleteCategory(w http.ResponseWriter, r *http.Request) {
+	serverID := strings.TrimSpace(chi.URLParam(r, "serverID"))
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_server", "server id is required", false)
+		return
+	}
+	groupID := strings.TrimSpace(chi.URLParam(r, "groupID"))
+	if groupID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_category", "category id is required", false)
+		return
+	}
+
+	requester := requesterFromContext(r.Context())
+	updated, err := s.chat.DeleteCategory(serverID, requester.UserUID, groupID)
+	if err != nil {
+		switch {
+		case errors.Is(err, chat.ErrOwnershipClaimRequired):
+			writeError(w, http.StatusForbidden, "ownership_claim_required", "ownership claim is required before deleting categories", false)
+		case errors.Is(err, chat.ErrCategoryDeleteForbidden):
+			writeError(w, http.StatusForbidden, "category_delete_forbidden", "requester does not have permission to delete categories", false)
+		case errors.Is(err, chat.ErrCategoryNotFound):
+			writeError(w, http.StatusNotFound, "category_not_found", "category was not found", false)
+		case errors.Is(err, chat.ErrCategoryNotEmpty):
+			writeError(w, http.StatusBadRequest, "category_not_empty", "category must be empty before deletion", false)
+		case isUnknownServerError(err):
+			writeError(w, http.StatusNotFound, "server_not_found", err.Error(), false)
+		default:
+			writeError(w, http.StatusBadRequest, "category_delete_failed", err.Error(), false)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"server_id":      updated.ServerID,
+		"groups":         updated.Groups,
+		"updated_by_uid": updated.UpdatedByUID,
+		"updated_at":     updated.UpdatedAt,
+	})
+}
+
 func (s *Server) putChannelLayout(w http.ResponseWriter, r *http.Request) {
 	serverID := strings.TrimSpace(chi.URLParam(r, "serverID"))
 	if serverID == "" {

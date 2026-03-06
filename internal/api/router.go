@@ -105,6 +105,7 @@ func (s *Server) Router() http.Handler {
 			authed.Post("/servers/{serverID}/channels", s.createChannel)
 			authed.Post("/servers/{serverID}/categories", s.createCategory)
 			authed.Put("/servers/{serverID}/categories/{groupID}", s.putCategory)
+			authed.Delete("/servers/{serverID}/categories/{groupID}", s.deleteCategory)
 			authed.Put("/servers/{serverID}/channel-layout", s.putChannelLayout)
 			authed.Get("/servers/{serverID}/settings", s.getServerSettings)
 			authed.Put("/servers/{serverID}/settings", s.putServerSettings)
