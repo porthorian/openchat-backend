@@ -1,0 +1,80 @@
+{{- if .Values.coturn.enabled -}}
+{{- $minRelayPort := int .Values.coturn.relay.minPort -}}
+{{- $maxRelayPort := int .Values.coturn.relay.maxPort -}}
+{{- if gt $minRelayPort $maxRelayPort -}}
+{{- fail "coturn.relay.minPort must be <= coturn.relay.maxPort" -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openchat-backend.coturn.fullname" . }}
+  labels:
+    {{- include "openchat-backend.coturn.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.coturn.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "openchat-backend.coturn.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.coturn.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "openchat-backend.coturn.selectorLabels" . | nindent 8 }}
+        {{- with .Values.coturn.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.coturn.podSecurityContext | nindent 8 }}
+      containers:
+        - name: coturn
+          securityContext:
+            {{- toYaml .Values.coturn.securityContext | nindent 12 }}
+          image: "{{ .Values.coturn.image.repository }}:{{ .Values.coturn.image.tag }}"
+          imagePullPolicy: {{ .Values.coturn.image.pullPolicy }}
+          args:
+            - "--fingerprint"
+            - "--lt-cred-mech"
+            - "--no-cli"
+            - "--realm={{ .Values.coturn.realm }}"
+            - "--external-ip={{ required "coturn.externalIP must be set when coturn.enabled=true" .Values.coturn.externalIP }}"
+            - "--listening-port={{ .Values.coturn.ports.turn }}"
+            - "--min-port={{ $minRelayPort }}"
+            - "--max-port={{ $maxRelayPort }}"
+            - "--user=$(TURN_USERNAME):$(TURN_PASSWORD)"
+          env:
+            - name: TURN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openchat-backend.coturn.authSecretName" . }}
+                  key: {{ .Values.coturn.auth.usernameKey }}
+            - name: TURN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openchat-backend.coturn.authSecretName" . }}
+                  key: {{ .Values.coturn.auth.passwordKey }}
+          ports:
+            - name: turn-udp
+              containerPort: {{ .Values.coturn.ports.turn }}
+              protocol: UDP
+            - name: turn-tcp
+              containerPort: {{ .Values.coturn.ports.turn }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.coturn.resources | nindent 12 }}
+      {{- with .Values.coturn.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coturn.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coturn.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

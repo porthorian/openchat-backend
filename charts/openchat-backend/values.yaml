@@ -89,6 +89,62 @@ env:
 
 extraEnv: []
 
+coturn:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: coturn/coturn
+    pullPolicy: IfNotPresent
+    tag: "4.9.0"
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+  service:
+    type: LoadBalancer
+    annotations: {}
+    externalTrafficPolicy: Cluster
+  ports:
+    turn: 3478
+  relay:
+    minPort: 49160
+    maxPort: 49200
+  externalIP: ""
+  realm: "openchat.local"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  auth:
+    createSecret: true
+    existingSecret: ""
+    username: "openchat-turn"
+    password: "change-me"
+    usernameKey: "username"
+    passwordKey: "password"
+  backend:
+    injectEnv: true
+    advertisedTURNURLs: []
+    advertisedSTUNURLs: []
+    appendGoogleStunFallback: true
+    googleStunFallbackURLs:
+      - "stun:stun.l.google.com:19302"
+      - "stun:stun1.l.google.com:19302"
+      - "stun:stun2.l.google.com:19302"
+      - "stun:stun3.l.google.com:19302"
+      - "stun:stun4.l.google.com:19302"
+
 probes:
   liveness:
     enabled: true

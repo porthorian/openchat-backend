@@ -1,0 +1,40 @@
+{{- if .Values.coturn.enabled -}}
+{{- $minRelayPort := int .Values.coturn.relay.minPort -}}
+{{- $maxRelayPort := int .Values.coturn.relay.maxPort -}}
+{{- $maxRelayPortExclusive := int (add1 $maxRelayPort) -}}
+{{- if gt $minRelayPort $maxRelayPort -}}
+{{- fail "coturn.relay.minPort must be <= coturn.relay.maxPort" -}}
+{{- end -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openchat-backend.coturn.fullname" . }}
+  labels:
+    {{- include "openchat-backend.coturn.labels" . | nindent 4 }}
+  {{- with .Values.coturn.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.coturn.service.type }}
+  {{- if or (eq .Values.coturn.service.type "LoadBalancer") (eq .Values.coturn.service.type "NodePort") }}
+  externalTrafficPolicy: {{ .Values.coturn.service.externalTrafficPolicy }}
+  {{- end }}
+  ports:
+    - name: turn-udp
+      port: {{ .Values.coturn.ports.turn }}
+      targetPort: {{ .Values.coturn.ports.turn }}
+      protocol: UDP
+    - name: turn-tcp
+      port: {{ .Values.coturn.ports.turn }}
+      targetPort: {{ .Values.coturn.ports.turn }}
+      protocol: TCP
+    {{- range $relayPort := untilStep $minRelayPort $maxRelayPortExclusive 1 }}
+    - name: relay-{{ $relayPort }}
+      port: {{ $relayPort }}
+      targetPort: {{ $relayPort }}
+      protocol: UDP
+    {{- end }}
+  selector:
+    {{- include "openchat-backend.coturn.selectorLabels" . | nindent 4 }}
+{{- end }}
