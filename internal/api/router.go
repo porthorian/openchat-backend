@@ -99,9 +99,13 @@ func (s *Server) Router() http.Handler {
 			authed.Use(func(next http.Handler) http.Handler {
 				return withRequesterContext(next, s.cfg.IsProduction())
 			})
+			authed.Post("/servers", s.createServer)
+			authed.Post("/servers/{serverID}/ownership:claim", s.claimServerOwnership)
 			authed.Post("/rtc/channels/{channelID}/join-ticket", s.issueJoinTicket)
 			authed.Post("/servers/{serverID}/channels", s.createChannel)
 			authed.Post("/servers/{serverID}/categories", s.createCategory)
+			authed.Put("/servers/{serverID}/categories/{groupID}", s.putCategory)
+			authed.Put("/servers/{serverID}/channel-layout", s.putChannelLayout)
 			authed.Get("/servers/{serverID}/settings", s.getServerSettings)
 			authed.Put("/servers/{serverID}/settings", s.putServerSettings)
 			authed.Post("/channels/{channelID}/messages", s.createMessage)

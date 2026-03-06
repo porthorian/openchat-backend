@@ -160,3 +160,78 @@ func TestBroadcastCategoryCreatedAndServerUpdatedScopedByServerID(t *testing.T) 
 		t.Fatalf("expected timeout waiting for unrelated server events, got %v", err)
 	}
 }
+
+func TestBroadcastCategoryUpdatedAndChannelLayoutUpdatedScopedByServerID(t *testing.T) {
+	hub := NewHub(slog.Default())
+	server := httptest.NewServer(http.HandlerFunc(hub.ServeWS))
+	defer server.Close()
+
+	connect := func(serverID string) *websocket.Conn {
+		wsURL := strings.Replace(server.URL, "http://", "ws://", 1)
+		wsURL = wsURL + "/v1/realtime?user_uid=uid_test&device_id=desktop_test&server_id=" + serverID
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		if err != nil {
+			t.Fatalf("dial realtime websocket failed for %s: %v", serverID, err)
+		}
+		return conn
+	}
+
+	harborConn := connect(chat.SeedServerIDHarbor)
+	defer harborConn.Close()
+	testlabConn := connect(chat.SeedServerIDTestLab)
+	defer testlabConn.Close()
+
+	hub.BroadcastCategoryUpdated(chat.CategoryUpdatedEvent{
+		ServerID:     chat.SeedServerIDHarbor,
+		UpdatedByUID: "uid_owner",
+		UpdatedAt:    time.Now().UTC().Format(time.RFC3339),
+		Group: chat.ChannelGroup{
+			ID:       "grp_general",
+			Label:    "General Updated",
+			Kind:     "text",
+			Channels: []chat.Channel{{ID: "ch_general", Name: "general", Type: chat.ChannelTypeText}},
+		},
+	})
+
+	var harborCategory Envelope
+	_ = harborConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := harborConn.ReadJSON(&harborCategory); err != nil {
+		t.Fatalf("expected harbor category update event, got read error: %v", err)
+	}
+	if harborCategory.Type != "chat.category.updated" {
+		t.Fatalf("expected chat.category.updated event, got %s", harborCategory.Type)
+	}
+
+	hub.BroadcastChannelLayoutUpdated(chat.ChannelLayoutUpdatedEvent{
+		ServerID:     chat.SeedServerIDHarbor,
+		UpdatedByUID: "uid_owner",
+		UpdatedAt:    time.Now().UTC().Format(time.RFC3339),
+		Groups: []chat.ChannelGroup{
+			{
+				ID:       "grp_general",
+				Label:    "General Updated",
+				Kind:     "text",
+				Channels: []chat.Channel{{ID: "ch_general", Name: "general", Type: chat.ChannelTypeText}},
+			},
+		},
+	})
+
+	var harborLayout Envelope
+	_ = harborConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := harborConn.ReadJSON(&harborLayout); err != nil {
+		t.Fatalf("expected harbor channel layout update event, got read error: %v", err)
+	}
+	if harborLayout.Type != "chat.channel.layout.updated" {
+		t.Fatalf("expected chat.channel.layout.updated event, got %s", harborLayout.Type)
+	}
+
+	_ = testlabConn.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
+	err := testlabConn.ReadJSON(&Envelope{})
+	if err == nil {
+		t.Fatalf("did not expect scoped update events on non-matching server connection")
+	}
+	var netErr net.Error
+	if !errors.As(err, &netErr) || !netErr.Timeout() {
+		t.Fatalf("expected timeout waiting for unrelated server events, got %v", err)
+	}
+}

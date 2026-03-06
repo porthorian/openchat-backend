@@ -58,10 +58,11 @@ type TransportCapabilitiesResponse struct {
 }
 
 type CoreFeatureFlagsResponse struct {
-	Messaging     bool `json:"messaging"`
-	Presence      bool `json:"presence"`
-	Attachments   bool `json:"attachments"`
-	Notifications bool `json:"notifications"`
+	Messaging      bool `json:"messaging"`
+	Presence       bool `json:"presence"`
+	Attachments    bool `json:"attachments"`
+	Notifications  bool `json:"notifications"`
+	ServerCreation bool `json:"server_creation"`
 }
 
 type MentionCapabilitiesResponse struct {
@@ -193,10 +194,11 @@ func (s *Service) Build() CapabilitiesResponse {
 			Polling:   false,
 		},
 		Features: CoreFeatureFlagsResponse{
-			Messaging:     true,
-			Presence:      true,
-			Attachments:   true,
-			Notifications: true,
+			Messaging:      true,
+			Presence:       true,
+			Attachments:    true,
+			Notifications:  true,
+			ServerCreation: s.cfg.AllowServerCreation,
 		},
 		Mentions: MentionCapabilitiesResponse{
 			User:            true,

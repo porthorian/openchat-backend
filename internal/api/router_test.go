@@ -48,6 +48,13 @@ func TestCapabilitiesEndpoint(t *testing.T) {
 	if payload["rtc"] == nil {
 		t.Fatalf("expected rtc payload in capabilities response")
 	}
+	featuresPayload, ok := payload["features"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected features payload object")
+	}
+	if _, ok := featuresPayload["server_creation"]; !ok {
+		t.Fatalf("expected features.server_creation in capabilities response")
+	}
 	rtcPayload, ok := payload["rtc"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected rtc payload object")

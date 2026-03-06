@@ -179,6 +179,50 @@ func (h *Hub) BroadcastCategoryCreated(event chat.CategoryCreatedEvent) {
 	}
 }
 
+func (h *Hub) BroadcastCategoryUpdated(event chat.CategoryUpdatedEvent) {
+	serverID := strings.TrimSpace(event.ServerID)
+	if serverID == "" {
+		return
+	}
+	clients := h.clientsForServer(serverID)
+	if len(clients) == 0 {
+		return
+	}
+
+	envelope := newEnvelope("chat.category.updated", "", map[string]any{
+		"event_id":       "evt_" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""),
+		"server_id":      event.ServerID,
+		"group":          event.Group,
+		"updated_by_uid": event.UpdatedByUID,
+		"updated_at":     event.UpdatedAt,
+	})
+	for _, c := range clients {
+		c.enqueue(envelope)
+	}
+}
+
+func (h *Hub) BroadcastChannelLayoutUpdated(event chat.ChannelLayoutUpdatedEvent) {
+	serverID := strings.TrimSpace(event.ServerID)
+	if serverID == "" {
+		return
+	}
+	clients := h.clientsForServer(serverID)
+	if len(clients) == 0 {
+		return
+	}
+
+	envelope := newEnvelope("chat.channel.layout.updated", "", map[string]any{
+		"event_id":       "evt_" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""),
+		"server_id":      event.ServerID,
+		"groups":         event.Groups,
+		"updated_by_uid": event.UpdatedByUID,
+		"updated_at":     event.UpdatedAt,
+	})
+	for _, c := range clients {
+		c.enqueue(envelope)
+	}
+}
+
 func (h *Hub) BroadcastServerUpdated(event chat.ServerUpdatedEvent) {
 	serverID := strings.TrimSpace(event.ServerID)
 	if serverID == "" {

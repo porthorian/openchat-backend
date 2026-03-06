@@ -21,6 +21,22 @@ func TestLoadConfigFromEnv_DefaultSTUNURLs(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFromEnv_DefaultAllowServerCreation(t *testing.T) {
+	t.Setenv("OPENCHAT_ALLOW_SERVER_CREATION", "")
+	cfg := LoadConfigFromEnv()
+	if !cfg.AllowServerCreation {
+		t.Fatalf("expected allow server creation default true")
+	}
+}
+
+func TestLoadConfigFromEnv_AllowServerCreationOverride(t *testing.T) {
+	t.Setenv("OPENCHAT_ALLOW_SERVER_CREATION", "false")
+	cfg := LoadConfigFromEnv()
+	if cfg.AllowServerCreation {
+		t.Fatalf("expected allow server creation false override")
+	}
+}
+
 func TestLoadConfigFromEnv_OverrideSTUNURLs(t *testing.T) {
 	t.Setenv("OPENCHAT_RTC_STUN_URLS", "stun:one.example.net:3478,stun:two.example.net:3478")
 

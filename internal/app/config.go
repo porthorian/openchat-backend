@@ -15,6 +15,7 @@ type Config struct {
 	TicketTTL                           time.Duration
 	TicketSecret                        string
 	Environment                         string
+	AllowServerCreation                 bool
 	RTCSTUNURLs                         []string
 	RTCTURNURLs                         []string
 	RTCTURNUsername                     string
@@ -56,12 +57,13 @@ func (c Config) SignalingURL() string {
 func LoadConfigFromEnv() Config {
 	publicBaseURL := envOrDefault("OPENCHAT_PUBLIC_BASE_URL", "http://localhost:8080")
 	return Config{
-		HTTPAddr:      envOrDefault("OPENCHAT_HTTP_ADDR", ":8080"),
-		PublicBaseURL: publicBaseURL,
-		SignalingPath: envOrDefault("OPENCHAT_SIGNALING_PATH", "/v1/rtc/signaling"),
-		TicketTTL:     time.Duration(envOrDefaultInt("OPENCHAT_JOIN_TICKET_TTL_SECONDS", 60)) * time.Second,
-		TicketSecret:  envOrDefault("OPENCHAT_JOIN_TICKET_SECRET", "dev-insecure-secret-change-me"),
-		Environment:   envOrDefault("OPENCHAT_ENV", "development"),
+		HTTPAddr:            envOrDefault("OPENCHAT_HTTP_ADDR", ":8080"),
+		PublicBaseURL:       publicBaseURL,
+		SignalingPath:       envOrDefault("OPENCHAT_SIGNALING_PATH", "/v1/rtc/signaling"),
+		TicketTTL:           time.Duration(envOrDefaultInt("OPENCHAT_JOIN_TICKET_TTL_SECONDS", 60)) * time.Second,
+		TicketSecret:        envOrDefault("OPENCHAT_JOIN_TICKET_SECRET", "dev-insecure-secret-change-me"),
+		Environment:         envOrDefault("OPENCHAT_ENV", "development"),
+		AllowServerCreation: envOrDefaultBool("OPENCHAT_ALLOW_SERVER_CREATION", true),
 		RTCSTUNURLs: envCSVOrDefault("OPENCHAT_RTC_STUN_URLS", []string{
 			"stun:stun.l.google.com:19302",
 			"stun:stun1.l.google.com:19302",
@@ -140,6 +142,21 @@ func envOrDefaultInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func envOrDefaultBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func envCSVOrDefault(key string, fallback []string) []string {

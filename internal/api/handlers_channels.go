@@ -62,6 +62,8 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		switch {
+		case errors.Is(err, chat.ErrOwnershipClaimRequired):
+			writeError(w, http.StatusForbidden, "ownership_claim_required", "ownership claim is required before creating channels", false)
 		case errors.Is(err, chat.ErrChannelCreateForbidden):
 			writeError(w, http.StatusForbidden, "channel_create_forbidden", "requester does not have permission to create channels", false)
 		case errors.Is(err, chat.ErrChannelNameInvalid):
@@ -107,6 +109,8 @@ func (s *Server) createCategory(w http.ResponseWriter, r *http.Request) {
 	created, err := s.chat.CreateCategory(serverID, requester.UserUID, payload.Name, payload.Kind)
 	if err != nil {
 		switch {
+		case errors.Is(err, chat.ErrOwnershipClaimRequired):
+			writeError(w, http.StatusForbidden, "ownership_claim_required", "ownership claim is required before creating categories", false)
 		case errors.Is(err, chat.ErrCategoryCreateForbidden):
 			writeError(w, http.StatusForbidden, "category_create_forbidden", "requester does not have permission to create categories", false)
 		case errors.Is(err, chat.ErrCategoryNameInvalid):
@@ -126,6 +130,95 @@ func (s *Server) createCategory(w http.ResponseWriter, r *http.Request) {
 		"group":          created.Group,
 		"created_by_uid": created.CreatedByUID,
 		"created_at":     created.CreatedAt,
+	})
+}
+
+func (s *Server) putCategory(w http.ResponseWriter, r *http.Request) {
+	serverID := strings.TrimSpace(chi.URLParam(r, "serverID"))
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_server", "server id is required", false)
+		return
+	}
+	groupID := strings.TrimSpace(chi.URLParam(r, "groupID"))
+	if groupID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_category", "category id is required", false)
+		return
+	}
+
+	var payload struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_payload", "invalid category payload", false)
+		return
+	}
+
+	requester := requesterFromContext(r.Context())
+	updated, err := s.chat.UpdateCategory(serverID, requester.UserUID, groupID, payload.Name)
+	if err != nil {
+		switch {
+		case errors.Is(err, chat.ErrOwnershipClaimRequired):
+			writeError(w, http.StatusForbidden, "ownership_claim_required", "ownership claim is required before updating categories", false)
+		case errors.Is(err, chat.ErrCategoryUpdateForbidden):
+			writeError(w, http.StatusForbidden, "category_update_forbidden", "requester does not have permission to update categories", false)
+		case errors.Is(err, chat.ErrCategoryNameInvalid):
+			writeError(w, http.StatusBadRequest, "invalid_category_name", "category name is invalid", false)
+		case errors.Is(err, chat.ErrCategoryNotFound):
+			writeError(w, http.StatusNotFound, "category_not_found", "category was not found", false)
+		case isUnknownServerError(err):
+			writeError(w, http.StatusNotFound, "server_not_found", err.Error(), false)
+		default:
+			writeError(w, http.StatusBadRequest, "category_update_failed", err.Error(), false)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"server_id":      updated.ServerID,
+		"group":          updated.Group,
+		"updated_by_uid": updated.UpdatedByUID,
+		"updated_at":     updated.UpdatedAt,
+	})
+}
+
+func (s *Server) putChannelLayout(w http.ResponseWriter, r *http.Request) {
+	serverID := strings.TrimSpace(chi.URLParam(r, "serverID"))
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_server", "server id is required", false)
+		return
+	}
+
+	var payload struct {
+		Groups []chat.ChannelLayoutGroup `json:"groups"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_payload", "invalid channel layout payload", false)
+		return
+	}
+
+	requester := requesterFromContext(r.Context())
+	updated, err := s.chat.UpdateChannelLayout(serverID, requester.UserUID, payload.Groups)
+	if err != nil {
+		switch {
+		case errors.Is(err, chat.ErrOwnershipClaimRequired):
+			writeError(w, http.StatusForbidden, "ownership_claim_required", "ownership claim is required before updating channel layout", false)
+		case errors.Is(err, chat.ErrChannelLayoutForbidden):
+			writeError(w, http.StatusForbidden, "channel_layout_forbidden", "requester does not have permission to update channel layout", false)
+		case errors.Is(err, chat.ErrChannelLayoutInvalid):
+			writeError(w, http.StatusBadRequest, "invalid_channel_layout", "channel layout payload is invalid", false)
+		case isUnknownServerError(err):
+			writeError(w, http.StatusNotFound, "server_not_found", err.Error(), false)
+		default:
+			writeError(w, http.StatusBadRequest, "channel_layout_update_failed", err.Error(), false)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"server_id":      updated.ServerID,
+		"groups":         updated.Groups,
+		"updated_by_uid": updated.UpdatedByUID,
+		"updated_at":     updated.UpdatedAt,
 	})
 }
 

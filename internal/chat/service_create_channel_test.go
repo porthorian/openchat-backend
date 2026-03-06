@@ -18,7 +18,9 @@ func (s *channelCreateBroadcasterSpy) BroadcastChannelCreated(event ChannelCreat
 	s.events = append(s.events, event)
 }
 
-func (s *channelCreateBroadcasterSpy) BroadcastCategoryCreated(_ CategoryCreatedEvent) {}
+func (s *channelCreateBroadcasterSpy) BroadcastCategoryCreated(_ CategoryCreatedEvent)           {}
+func (s *channelCreateBroadcasterSpy) BroadcastCategoryUpdated(_ CategoryUpdatedEvent)           {}
+func (s *channelCreateBroadcasterSpy) BroadcastChannelLayoutUpdated(_ ChannelLayoutUpdatedEvent) {}
 
 func (s *channelCreateBroadcasterSpy) BroadcastServerUpdated(_ ServerUpdatedEvent) {}
 

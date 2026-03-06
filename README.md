@@ -50,6 +50,10 @@ Config variables:
 
 To disable STUN advertisement entirely, set `OPENCHAT_RTC_STUN_URLS=none` (or `-`).
 
+## Server Creation Policy
+- `OPENCHAT_ALLOW_SERVER_CREATION` controls whether users can create servers through backend APIs.
+- Default: `true`.
+
 ## RTC Subscribe Receive Limits
 The backend advertises RTC subscribe receive caps and resolves effective limits per call using:
 - `channel` override
@@ -91,6 +95,8 @@ For tagged builds, set `BUILD_VERSION` to the tag value you publish (for example
 - `GET /healthz`
 - `GET /v1/client/capabilities`
 - `GET /v1/servers` (requester-scoped when identity headers are present)
+- `POST /v1/servers`
+- `POST /v1/servers/:server_id/ownership:claim`
 - `POST /v1/servers/:server_id/channels`
 - `POST /v1/servers/:server_id/categories`
 - `GET /v1/servers/:server_id/settings`
