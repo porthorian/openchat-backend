@@ -27,13 +27,13 @@ type Server struct {
 
 func NewServer(cfg app.Config, logger *slog.Logger) *Server {
 	capSvc := capabilities.NewService(cfg)
+	capabilitiesSnapshot := capSvc.Build()
 	tokens := rtc.NewTokenService(cfg.TicketSecret, cfg.TicketTTL)
-	signaling := rtc.NewSignalingService(logger, tokens)
+	signaling := rtc.NewSignalingService(logger, tokens, buildRTCSignalingConfig(capabilitiesSnapshot))
 	chatService := chat.NewService(cfg.PublicBaseURL)
 	realtimeHub := realtime.NewHub(logger)
 	chatService.SetBroadcaster(realtimeHub)
 
-	capabilitiesSnapshot := capSvc.Build()
 	profileService := profile.NewService(cfg.PublicBaseURL, capabilitiesSnapshot.ServerID)
 	profileService.SetBroadcaster(realtimeHub)
 
@@ -47,6 +47,24 @@ func NewServer(cfg app.Config, logger *slog.Logger) *Server {
 		realtime:     realtimeHub,
 		profiles:     profileService,
 	}
+}
+
+func buildRTCSignalingConfig(snapshot capabilities.CapabilitiesResponse) rtc.SignalingConfig {
+	cfg := rtc.SignalingConfig{}
+	if snapshot.RTC == nil {
+		return cfg
+	}
+	servers := make([]rtc.ICEServerConfig, 0, len(snapshot.RTC.IceServers))
+	for _, ice := range snapshot.RTC.IceServers {
+		servers = append(servers, rtc.ICEServerConfig{
+			URLs:           append([]string(nil), ice.URLs...),
+			Username:       ice.Username,
+			Credential:     ice.Credential,
+			CredentialType: ice.CredentialType,
+		})
+	}
+	cfg.ICEServers = servers
+	return cfg
 }
 
 func (s *Server) Router() http.Handler {

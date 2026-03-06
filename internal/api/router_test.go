@@ -47,6 +47,13 @@ func TestCapabilitiesEndpoint(t *testing.T) {
 	if payload["rtc"] == nil {
 		t.Fatalf("expected rtc payload in capabilities response")
 	}
+	rtcPayload, ok := payload["rtc"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected rtc payload object")
+	}
+	if rtcPayload["subscribe_receive_policy"] == nil {
+		t.Fatalf("expected rtc.subscribe_receive_policy in capabilities response")
+	}
 	if payload["profile"] == nil {
 		t.Fatalf("expected profile payload in capabilities response")
 	}

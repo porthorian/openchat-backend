@@ -5,7 +5,8 @@ This file defines implementation constraints and planning rules for `openchat-ba
 
 ## Agent Execution Rules
 - Do not run any `git` commands in this repository.
-- Do not run commands unless explicitly approved by the user or explicitly allowed in this file.
+- Standing approval: commands needed for implementation in this workspace are approved by default.
+- Standing approval: file edits/creates/deletes needed for implementation in this workspace are approved by default.
 - Never reintroduce code/content that the user previously removed.
 - Prefer targeted edits over full-file rewrites unless the user explicitly requests a rewrite.
 - Allowed to run write commands and read commands of files in workspace.

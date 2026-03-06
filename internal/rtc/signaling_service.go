@@ -14,15 +14,33 @@ import (
 )
 
 type SignalingService struct {
-	logger    *slog.Logger
-	tokens    *TokenService
-	upgrader  websocket.Upgrader
-	rooms     *roomHub
-	readLimit int64
+	logger     *slog.Logger
+	tokens     *TokenService
+	webrtc     *PionEngine
+	upgrader   websocket.Upgrader
+	rooms      *roomHub
+	readLimit  int64
+	mediaHints *mediaHintRegistry
 }
 
-func NewSignalingService(logger *slog.Logger, tokens *TokenService) *SignalingService {
-	return &SignalingService{
+type participantMediaHints struct {
+	trackKindByID  map[string]TrackStreamKind
+	streamKindByID map[string]TrackStreamKind
+}
+
+type mediaHintRegistry struct {
+	mu        sync.RWMutex
+	byChannel map[string]map[string]*participantMediaHints
+}
+
+func newMediaHintRegistry() *mediaHintRegistry {
+	return &mediaHintRegistry{
+		byChannel: make(map[string]map[string]*participantMediaHints),
+	}
+}
+
+func NewSignalingService(logger *slog.Logger, tokens *TokenService, cfg SignalingConfig) *SignalingService {
+	service := &SignalingService{
 		logger: logger,
 		tokens: tokens,
 		upgrader: websocket.Upgrader{
@@ -32,9 +50,19 @@ func NewSignalingService(logger *slog.Logger, tokens *TokenService) *SignalingSe
 				return true
 			},
 		},
-		rooms:     newRoomHub(),
-		readLimit: 1 << 20,
+		rooms:      newRoomHub(),
+		readLimit:  1 << 20,
+		mediaHints: newMediaHintRegistry(),
 	}
+	service.webrtc = NewPionEngine(
+		logger,
+		cfg,
+		service.emitLocalICECandidate,
+		service.emitSubscribeRefresh,
+		service.emitTrackPublished,
+		service.emitTrackUnpublished,
+	)
+	return service
 }
 
 func (s *SignalingService) ServeWS(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +173,7 @@ func (c *wsClient) waitForJoin() error {
 		),
 		participant.ParticipantID,
 	)
+	c.service.webrtc.RegisterParticipant(participant)
 
 	_ = c.conn.SetReadDeadline(time.Now().Add(40 * time.Second))
 	return nil
@@ -158,10 +187,96 @@ func (c *wsClient) handleEnvelope(envelope Envelope) {
 		c.closeConnection()
 	case "rtc.media.state":
 		c.relayMediaState(envelope)
-	case "rtc.offer.publish", "rtc.offer.subscribe", "rtc.answer.publish", "rtc.answer.subscribe", "rtc.ice.candidate":
+	case "rtc.offer.publish":
+		c.handleOffer(envelope, SignalDirectionPublish, "rtc.answer.publish")
+	case "rtc.offer.subscribe":
+		c.handleOffer(envelope, SignalDirectionSubscribe, "rtc.answer.subscribe")
+	case "rtc.answer.publish", "rtc.answer.subscribe":
 		c.forwardSignal(envelope)
+	case "rtc.ice.candidate":
+		c.handleICECandidate(envelope)
 	default:
 		c.sendError(envelope.RequestID, "rtc_unknown_event", "unsupported signaling event type", false)
+	}
+}
+
+func (c *wsClient) handleOffer(envelope Envelope, direction SignalDirection, responseType string) {
+	var payload SessionDescriptionPayload
+	if len(envelope.Payload) > 0 {
+		if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+			c.sendError(envelope.RequestID, "rtc_invalid_offer", "invalid offer payload", false)
+			return
+		}
+	}
+	c.service.logger.Info(
+		"rtc offer received",
+		"participant_id", c.participant.ParticipantID,
+		"channel_id", c.participant.ChannelID,
+		"direction", direction,
+		"request_id", envelope.RequestID,
+		"sdp_len", len(strings.TrimSpace(payload.SDP)),
+	)
+
+	answer, err := c.service.webrtc.HandleOffer(c.participant.ParticipantID, direction, payload)
+	if err != nil {
+		c.service.logger.Warn(
+			"rtc offer handling failed",
+			"participant_id", c.participant.ParticipantID,
+			"channel_id", c.participant.ChannelID,
+			"direction", direction,
+			"request_id", envelope.RequestID,
+			"error", err,
+		)
+		c.sendError(envelope.RequestID, "rtc_negotiation_failed", err.Error(), true)
+		return
+	}
+	c.service.logger.Info(
+		"rtc answer generated",
+		"participant_id", c.participant.ParticipantID,
+		"channel_id", c.participant.ChannelID,
+		"direction", direction,
+		"request_id", envelope.RequestID,
+		"sdp_len", len(strings.TrimSpace(answer.SDP)),
+	)
+
+	c.enqueue(NewEnvelope(responseType, c.participant.ChannelID, envelope.RequestID, map[string]any{
+		"type":      answer.Type,
+		"sdp":       answer.SDP,
+		"direction": string(direction),
+	}))
+}
+
+func (c *wsClient) handleICECandidate(envelope Envelope) {
+	var payload struct {
+		Candidate     string  `json:"candidate"`
+		SDPMid        *string `json:"sdp_mid"`
+		SDPMLineIndex *uint16 `json:"sdp_mline_index"`
+		Direction     string  `json:"direction"`
+	}
+	if len(envelope.Payload) > 0 {
+		if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+			c.sendError(envelope.RequestID, "rtc_invalid_ice_candidate", "invalid ice candidate payload", false)
+			return
+		}
+	}
+
+	direction := SignalDirectionPublish
+	if trimmed := strings.TrimSpace(payload.Direction); trimmed != "" {
+		parsed, err := parseSignalDirection(trimmed)
+		if err != nil {
+			c.sendError(envelope.RequestID, "rtc_candidate_direction_invalid", err.Error(), false)
+			return
+		}
+		direction = parsed
+	}
+
+	err := c.service.webrtc.AddICECandidate(c.participant.ParticipantID, direction, ICECandidatePayload{
+		Candidate:     payload.Candidate,
+		SDPMid:        payload.SDPMid,
+		SDPMLineIndex: payload.SDPMLineIndex,
+	})
+	if err != nil {
+		c.sendError(envelope.RequestID, "rtc_candidate_rejected", err.Error(), true)
 	}
 }
 
@@ -174,8 +289,7 @@ func (c *wsClient) relayMediaState(envelope Envelope) {
 		payload = make(map[string]any)
 	}
 
-	streamKind, _ := payload["stream_kind"].(string)
-	streamKind = strings.TrimSpace(streamKind)
+	streamKind := strings.TrimSpace(stringFromAny(payload["stream_kind"]))
 	switch streamKind {
 	case "":
 		// Presence-only media state updates are allowed without stream checks.
@@ -195,6 +309,23 @@ func (c *wsClient) relayMediaState(envelope Envelope) {
 			return
 		}
 	}
+
+	if parsedStreamKind, ok := parseTrackStreamKind(streamKind); ok {
+		trackID := strings.TrimSpace(stringFromAny(payload["track_id"]))
+		streamID := strings.TrimSpace(stringFromAny(payload["stream_id"]))
+		action := strings.ToLower(strings.TrimSpace(stringFromAny(payload["action"])))
+		if action != "stop" {
+			action = "start"
+		}
+		c.service.mediaHints.apply(c.participant.ChannelID, c.participant.ParticipantID, trackID, streamID, parsedStreamKind, action)
+	}
+
+	// rtc.media.state remains control/presence only; do not relay payload-sized media chunks.
+	delete(payload, "chunk_b64")
+	delete(payload, "chunk_seq")
+	delete(payload, "sample_rate_hz")
+	delete(payload, "channels")
+	delete(payload, "encoding")
 
 	payload["participant_id"] = c.participant.ParticipantID
 	payload["user_uid"] = c.participant.UserUID
@@ -282,6 +413,8 @@ func (c *wsClient) writePump() {
 
 func (c *wsClient) closeConnection() {
 	c.closeOnce.Do(func() {
+		c.service.webrtc.RemoveParticipant(c.participant.ParticipantID)
+		c.service.mediaHints.clearParticipant(c.participant.ChannelID, c.participant.ParticipantID)
 		if c.participant.ChannelID != "" {
 			c.service.rooms.unregister(c.participant.ChannelID, c.participant.ParticipantID)
 			c.service.rooms.broadcast(
@@ -304,6 +437,224 @@ func (c *wsClient) closeConnection() {
 		close(c.send)
 		_ = c.conn.Close()
 	})
+}
+
+func (s *SignalingService) emitLocalICECandidate(participant Participant, direction SignalDirection, candidate ICECandidatePayload) {
+	payload := map[string]any{
+		"candidate": candidate.Candidate,
+		"direction": string(direction),
+	}
+	if candidate.SDPMid != nil {
+		payload["sdp_mid"] = *candidate.SDPMid
+	}
+	if candidate.SDPMLineIndex != nil {
+		payload["sdp_mline_index"] = *candidate.SDPMLineIndex
+	}
+	envelope := NewEnvelope("rtc.ice.candidate", participant.ChannelID, "", payload)
+	if ok := s.rooms.sendToParticipant(participant.ChannelID, participant.ParticipantID, envelope); !ok {
+		s.logger.Debug(
+			"unable to deliver local rtc ice candidate",
+			"participant_id", participant.ParticipantID,
+			"channel_id", participant.ChannelID,
+			"direction", direction,
+		)
+	}
+}
+
+func (s *SignalingService) emitSubscribeRefresh(participant Participant, reason string) {
+	payload := map[string]any{
+		"reason": strings.TrimSpace(reason),
+	}
+	envelope := NewEnvelope("rtc.subscribe.refresh", participant.ChannelID, "", payload)
+	if ok := s.rooms.sendToParticipant(participant.ChannelID, participant.ParticipantID, envelope); !ok {
+		s.logger.Debug(
+			"unable to deliver rtc subscribe refresh",
+			"participant_id", participant.ParticipantID,
+			"channel_id", participant.ChannelID,
+			"reason", reason,
+		)
+		return
+	}
+	s.logger.Debug(
+		"rtc subscribe refresh delivered",
+		"participant_id", participant.ParticipantID,
+		"channel_id", participant.ChannelID,
+		"reason", reason,
+	)
+}
+
+func (s *SignalingService) emitTrackPublished(participant Participant, lifecycle TrackLifecycle) {
+	lifecycle.StreamKind = s.mediaHints.resolveStreamKind(
+		participant.ChannelID,
+		participant.ParticipantID,
+		lifecycle.TrackID,
+		lifecycle.StreamID,
+		lifecycle.MediaKind,
+	)
+	envelope := NewEnvelope("rtc.track.published", participant.ChannelID, "", lifecycle)
+	s.rooms.broadcast(participant.ChannelID, envelope, "")
+}
+
+func (s *SignalingService) emitTrackUnpublished(participant Participant, lifecycle TrackLifecycle) {
+	lifecycle.StreamKind = s.mediaHints.resolveStreamKind(
+		participant.ChannelID,
+		participant.ParticipantID,
+		lifecycle.TrackID,
+		lifecycle.StreamID,
+		lifecycle.MediaKind,
+	)
+	envelope := NewEnvelope("rtc.track.unpublished", participant.ChannelID, "", lifecycle)
+	s.rooms.broadcast(participant.ChannelID, envelope, "")
+	s.mediaHints.apply(participant.ChannelID, participant.ParticipantID, lifecycle.TrackID, lifecycle.StreamID, lifecycle.StreamKind, "stop")
+}
+
+func stringFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return ""
+	}
+}
+
+func parseTrackStreamKind(value string) (TrackStreamKind, bool) {
+	switch strings.TrimSpace(value) {
+	case string(TrackStreamKindAudioMicrophone):
+		return TrackStreamKindAudioMicrophone, true
+	case string(TrackStreamKindVideoCamera):
+		return TrackStreamKindVideoCamera, true
+	case string(TrackStreamKindVideoScreen):
+		return TrackStreamKindVideoScreen, true
+	default:
+		return "", false
+	}
+}
+
+func (m *mediaHintRegistry) ensureParticipantHintsLocked(channelID string, participantID string) *participantMediaHints {
+	channel := m.byChannel[channelID]
+	if channel == nil {
+		channel = make(map[string]*participantMediaHints)
+		m.byChannel[channelID] = channel
+	}
+	hints := channel[participantID]
+	if hints == nil {
+		hints = &participantMediaHints{
+			trackKindByID:  make(map[string]TrackStreamKind),
+			streamKindByID: make(map[string]TrackStreamKind),
+		}
+		channel[participantID] = hints
+	}
+	return hints
+}
+
+func (m *mediaHintRegistry) apply(
+	channelID string,
+	participantID string,
+	trackID string,
+	streamID string,
+	streamKind TrackStreamKind,
+	action string,
+) {
+	channelID = strings.TrimSpace(channelID)
+	participantID = strings.TrimSpace(participantID)
+	if channelID == "" || participantID == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	channel := m.byChannel[channelID]
+	if channel == nil {
+		if action == "stop" {
+			return
+		}
+		channel = make(map[string]*participantMediaHints)
+		m.byChannel[channelID] = channel
+	}
+	hints := channel[participantID]
+	if hints == nil {
+		if action == "stop" {
+			return
+		}
+		hints = &participantMediaHints{
+			trackKindByID:  make(map[string]TrackStreamKind),
+			streamKindByID: make(map[string]TrackStreamKind),
+		}
+		channel[participantID] = hints
+	}
+	if action == "stop" {
+		if trackID != "" {
+			delete(hints.trackKindByID, trackID)
+		}
+		if streamID != "" {
+			delete(hints.streamKindByID, streamID)
+		}
+		if len(hints.trackKindByID) == 0 && len(hints.streamKindByID) == 0 {
+			delete(channel, participantID)
+		}
+		if len(channel) == 0 {
+			delete(m.byChannel, channelID)
+		}
+		return
+	}
+	if trackID != "" {
+		hints.trackKindByID[trackID] = streamKind
+	}
+	if streamID != "" {
+		hints.streamKindByID[streamID] = streamKind
+	}
+}
+
+func (m *mediaHintRegistry) resolveStreamKind(
+	channelID string,
+	participantID string,
+	trackID string,
+	streamID string,
+	mediaKind TrackMediaKind,
+) TrackStreamKind {
+	channelID = strings.TrimSpace(channelID)
+	participantID = strings.TrimSpace(participantID)
+	trackID = strings.TrimSpace(trackID)
+	streamID = strings.TrimSpace(streamID)
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if channel := m.byChannel[channelID]; channel != nil {
+		if hints := channel[participantID]; hints != nil {
+			if trackID != "" {
+				if streamKind, ok := hints.trackKindByID[trackID]; ok {
+					return streamKind
+				}
+			}
+			if streamID != "" {
+				if streamKind, ok := hints.streamKindByID[streamID]; ok {
+					return streamKind
+				}
+			}
+		}
+	}
+	if mediaKind == TrackMediaKindVideo {
+		return TrackStreamKindVideoCamera
+	}
+	return TrackStreamKindAudioMicrophone
+}
+
+func (m *mediaHintRegistry) clearParticipant(channelID string, participantID string) {
+	channelID = strings.TrimSpace(channelID)
+	participantID = strings.TrimSpace(participantID)
+	if channelID == "" || participantID == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	channel := m.byChannel[channelID]
+	if channel == nil {
+		return
+	}
+	delete(channel, participantID)
+	if len(channel) == 0 {
+		delete(m.byChannel, channelID)
+	}
 }
 
 type roomHub struct {

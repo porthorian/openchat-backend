@@ -29,6 +29,51 @@ On startup, the server logs build metadata:
 - `build_time`
 - `vcs_modified`
 
+## RTC ICE Configuration
+RTC ICE server URLs are configurable through environment variables and default to Google STUN.
+
+Defaults:
+- `OPENCHAT_RTC_STUN_URLS` defaults to:
+  - `stun:stun.l.google.com:19302`
+  - `stun:stun1.l.google.com:19302`
+  - `stun:stun2.l.google.com:19302`
+  - `stun:stun3.l.google.com:19302`
+  - `stun:stun4.l.google.com:19302`
+- `OPENCHAT_RTC_TURN_URLS` defaults to empty (no TURN advertised).
+
+Config variables:
+- `OPENCHAT_RTC_STUN_URLS` comma-separated STUN URLs.
+- `OPENCHAT_RTC_TURN_URLS` comma-separated TURN/TURNS URLs.
+- `OPENCHAT_RTC_TURN_USERNAME` TURN username.
+- `OPENCHAT_RTC_TURN_CREDENTIAL` TURN credential/password.
+- `OPENCHAT_RTC_TURN_CREDENTIAL_TYPE` TURN credential type (for example `static`).
+
+To disable STUN advertisement entirely, set `OPENCHAT_RTC_STUN_URLS=none` (or `-`).
+
+## RTC Subscribe Receive Limits
+The backend advertises RTC subscribe receive caps and resolves effective limits per call using:
+- `channel` override
+- then `server` override
+- then `instance` default
+
+Defaults:
+- `OPENCHAT_RTC_SUBSCRIBE_MAX_VIDEO_TRACKS=8`
+- `OPENCHAT_RTC_SUBSCRIBE_MAX_AUDIO_TRACKS=16`
+
+Optional override env vars (CSV `id=value`):
+- `OPENCHAT_RTC_SUBSCRIBE_MAX_VIDEO_TRACKS_BY_SERVER`
+- `OPENCHAT_RTC_SUBSCRIBE_MAX_AUDIO_TRACKS_BY_SERVER`
+- `OPENCHAT_RTC_SUBSCRIBE_MAX_VIDEO_TRACKS_BY_CHANNEL`
+- `OPENCHAT_RTC_SUBSCRIBE_MAX_AUDIO_TRACKS_BY_CHANNEL`
+
+Examples:
+- `OPENCHAT_RTC_SUBSCRIBE_MAX_VIDEO_TRACKS_BY_SERVER=srv_harbor=10,srv_testlab=6`
+- `OPENCHAT_RTC_SUBSCRIBE_MAX_AUDIO_TRACKS_BY_CHANNEL=vc_general=20,tl_vc_huddle=12`
+
+Wire contracts:
+- `GET /v1/client/capabilities` includes `rtc.subscribe_receive_policy`.
+- `POST /v1/rtc/channels/:channel_id/join-ticket` includes resolved `subscribe_receive_policy`.
+
 ## Docker Build (With Commit Metadata)
 Docker builds now require a commit hash so runtime startup logs always reference the build commit.
 
@@ -42,9 +87,9 @@ docker build \
 
 For tagged builds, set `BUILD_VERSION` to the tag value you publish (for example `v1.2.3`).
 
-## RTC Joiner (Audio Stream Test Tool)
-Start a signaling client that joins a voice channel and streams audio over `rtc.media.state`.
-Default mode (`pcm-frames`) decodes source audio to 48k mono PCM frames (via `ffmpeg`) for real-time-ish playback in the Electron client.
+## RTC Joiner (Legacy Audio Stream Tool)
+Start a signaling client that joins a voice channel and streams audio over legacy `rtc.media.state` chunk payloads.
+The production RTC v2 path uses WebRTC RTP audio/video tracks.
 
 ```bash
 go run ./cmd/openchat-rtc-joiner \
@@ -100,6 +145,30 @@ Install/upgrade:
 helm upgrade --install openchat-backend ./charts/openchat-backend \
   --namespace openchat --create-namespace
 ```
+
+Enable optional coturn (TURN + STUN on `3478`):
+```yaml
+coturn:
+  enabled: true
+  externalIP: "203.0.113.10"
+  realm: "openchat.example.com"
+  auth:
+    username: "openchat-turn"
+    password: "replace-me"
+  backend:
+    injectEnv: true
+    advertisedTURNURLs:
+      - "turn:turn.openchat.example.com:3478?transport=udp"
+      - "turn:turn.openchat.example.com:3478?transport=tcp"
+    advertisedSTUNURLs:
+      - "stun:turn.openchat.example.com:3478"
+    appendGoogleStunFallback: true
+```
+
+Notes:
+- `coturn.externalIP`, `coturn.backend.advertisedTURNURLs`, and `coturn.backend.advertisedSTUNURLs` are required when coturn is enabled with backend env injection.
+- When enabled, backend STUN advertisement is `advertisedSTUNURLs` first, then Google STUN fallback (unless disabled).
+- Explicit `env.OPENCHAT_RTC_*` values still override coturn auto-injected RTC env.
 
 OCI release flow:
 - Push a git tag matching `chart-vX.X.X`.

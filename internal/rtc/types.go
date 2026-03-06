@@ -38,6 +38,31 @@ type Envelope struct {
 	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
+type TrackMediaKind string
+
+const (
+	TrackMediaKindAudio TrackMediaKind = "audio"
+	TrackMediaKindVideo TrackMediaKind = "video"
+)
+
+type TrackStreamKind string
+
+const (
+	TrackStreamKindAudioMicrophone TrackStreamKind = "audio_microphone"
+	TrackStreamKindVideoCamera     TrackStreamKind = "video_camera"
+	TrackStreamKindVideoScreen     TrackStreamKind = "video_screen"
+)
+
+type TrackLifecycle struct {
+	ParticipantID string          `json:"participant_id"`
+	UserUID       string          `json:"user_uid"`
+	DeviceID      string          `json:"device_id"`
+	TrackID       string          `json:"track_id"`
+	StreamID      string          `json:"stream_id"`
+	MediaKind     TrackMediaKind  `json:"media_kind"`
+	StreamKind    TrackStreamKind `json:"stream_kind"`
+}
+
 func NewEnvelope(eventType string, channelID string, requestID string, payload any) Envelope {
 	rawPayload := json.RawMessage("{}")
 	if payload != nil {

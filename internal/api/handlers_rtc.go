@@ -28,6 +28,11 @@ func (s *Server) issueJoinTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_channel_type", "join ticket can only be created for voice channels", false)
 		return
 	}
+	channelServerID, exists := s.chat.ServerIDForChannel(channelID)
+	if !exists {
+		writeError(w, http.StatusNotFound, "channel_not_found", "unknown voice channel", false)
+		return
+	}
 
 	requester := requesterFromContext(r.Context())
 	var body joinTicketRequest
@@ -36,10 +41,14 @@ func (s *Server) issueJoinTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	serverID := strings.TrimSpace(body.ServerID)
 	if serverID == "" {
-		serverID = s.capabilities.Build().ServerID
+		serverID = channelServerID
 	}
 	if !s.chat.ServerExists(serverID) {
 		writeError(w, http.StatusNotFound, "server_not_found", "unknown server", false)
+		return
+	}
+	if channelServerID != "" && channelServerID != serverID {
+		writeError(w, http.StatusBadRequest, "channel_server_mismatch", "channel does not belong to the requested server", false)
 		return
 	}
 
@@ -79,6 +88,7 @@ func (s *Server) issueJoinTicket(w http.ResponseWriter, r *http.Request) {
 			iceServers = append(iceServers, server)
 		}
 	}
+	subscribeReceiveLimits := s.cfg.ResolveRTCSubscribeReceiveLimits(serverID, channelID)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ticket":        ticket,
@@ -90,6 +100,10 @@ func (s *Server) issueJoinTicket(w http.ResponseWriter, r *http.Request) {
 		"signaling_url": s.cfg.SignalingURL(),
 		"ice_servers":   iceServers,
 		"permissions":   claims.Permissions,
+		"subscribe_receive_policy": map[string]any{
+			"max_video_tracks": subscribeReceiveLimits.MaxVideoTracks,
+			"max_audio_tracks": subscribeReceiveLimits.MaxAudioTracks,
+		},
 	})
 }
 

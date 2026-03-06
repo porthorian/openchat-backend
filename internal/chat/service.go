@@ -423,6 +423,13 @@ func (s *Service) IsVoiceChannel(channelID string) bool {
 	return s.channelTypeByID[channelID] == ChannelTypeVoice
 }
 
+func (s *Service) ServerIDForChannel(channelID string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	serverID, ok := s.channelServerByID[channelID]
+	return serverID, ok
+}
+
 func (s *Service) LeaveServer(serverID string, userUID string) error {
 	serverID = strings.TrimSpace(serverID)
 	userUID = strings.TrimSpace(userUID)

@@ -35,6 +35,10 @@ Recommended base stack:
 - Pion-based SFU layer (native Pion composition or Ion-SFU integration) behind an adapter.
 - Coturn-compatible TURN credentials (time-bound) issued by backend policy.
 
+Adopted decision:
+- Use `pion/webrtc` as the implementation baseline instead of a custom WebRTC stack.
+- Keep `rtc/sfu_adapter.go` boundary so the SFU backend can evolve (including Ion-SFU) without API contract churn.
+
 Design rule:
 - keep SFU vendor details behind `rtc/sfu_adapter.go` so implementation can swap without API changes.
 

@@ -1,10 +1,6 @@
 package capabilities
 
-import (
-	"time"
-
-	"github.com/openchat/openchat-backend/internal/app"
-)
+import "github.com/openchat/openchat-backend/internal/app"
 
 type Service struct {
 	cfg app.Config
@@ -12,6 +8,24 @@ type Service struct {
 
 func NewService(cfg app.Config) *Service {
 	return &Service{cfg: cfg}
+}
+
+func (s *Service) rtcIceServers() []RTCIceServerResponse {
+	servers := make([]RTCIceServerResponse, 0, 2)
+	if len(s.cfg.RTCSTUNURLs) > 0 {
+		servers = append(servers, RTCIceServerResponse{
+			URLs: append([]string(nil), s.cfg.RTCSTUNURLs...),
+		})
+	}
+	if len(s.cfg.RTCTURNURLs) > 0 {
+		servers = append(servers, RTCIceServerResponse{
+			URLs:           append([]string(nil), s.cfg.RTCTURNURLs...),
+			Username:       s.cfg.RTCTURNUsername,
+			Credential:     s.cfg.RTCTURNCredential,
+			CredentialType: s.cfg.RTCTURNCredentialType,
+		})
+	}
+	return servers
 }
 
 type CapabilitiesResponse struct {
@@ -95,14 +109,20 @@ type RTCConnectionPolicyResponse struct {
 	ReconnectBackoffMs []int `json:"reconnect_backoff_ms"`
 }
 
+type RTCSubscribeReceivePolicyResponse struct {
+	MaxVideoTracks int `json:"max_video_tracks"`
+	MaxAudioTracks int `json:"max_audio_tracks"`
+}
+
 type RTCCapabilitiesResponse struct {
-	ProtocolVersion    string                      `json:"protocol_version"`
-	SignalingURL       string                      `json:"signaling_url"`
-	SignalingTransport string                      `json:"signaling_transport"`
-	Topologies         []string                    `json:"topologies"`
-	Features           RTCFeatureFlagsResponse     `json:"features"`
-	IceServers         []RTCIceServerResponse      `json:"ice_servers"`
-	ConnectionPolicy   RTCConnectionPolicyResponse `json:"connection_policy"`
+	ProtocolVersion    string                            `json:"protocol_version"`
+	SignalingURL       string                            `json:"signaling_url"`
+	SignalingTransport string                            `json:"signaling_transport"`
+	Topologies         []string                          `json:"topologies"`
+	Features           RTCFeatureFlagsResponse           `json:"features"`
+	IceServers         []RTCIceServerResponse            `json:"ice_servers"`
+	ConnectionPolicy   RTCConnectionPolicyResponse       `json:"connection_policy"`
+	SubscribeReceive   RTCSubscribeReceivePolicyResponse `json:"subscribe_receive_policy"`
 }
 
 type ModerationCapabilities struct {
@@ -153,8 +173,8 @@ type ProfileAvatarUploadRulesResponse struct {
 }
 
 func (s *Service) Build() CapabilitiesResponse {
-	turnExpiry := time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339)
 	build := app.CurrentBuildInfo()
+	subscribeReceiveLimits := s.cfg.ResolveRTCSubscribeReceiveLimits("", "")
 	return CapabilitiesResponse{
 		ServerName:             "OpenChat Harbor",
 		ServerID:               "srv_harbor",
@@ -198,33 +218,26 @@ func (s *Service) Build() CapabilitiesResponse {
 			CertificatePinning: "optional",
 		},
 		RTC: &RTCCapabilitiesResponse{
-			ProtocolVersion:    "1.0",
+			ProtocolVersion:    "2.0",
 			SignalingURL:       s.cfg.SignalingURL(),
 			SignalingTransport: "websocket",
-			Topologies:         []string{"p2p"},
+			Topologies:         []string{"sfu"},
 			Features: RTCFeatureFlagsResponse{
 				Voice:       true,
 				Video:       true,
 				Screenshare: true,
 				Simulcast:   true,
 			},
-			IceServers: []RTCIceServerResponse{
-				{
-					URLs: []string{"stun:stun.l.google.com:19302"},
-				},
-				{
-					URLs:           []string{"turns:turn.example.invalid:5349"},
-					Username:       "dev-user",
-					Credential:     "dev-secret",
-					CredentialType: "ephemeral",
-					ExpiresAt:      turnExpiry,
-				},
-			},
+			IceServers: s.rtcIceServers(),
 			ConnectionPolicy: RTCConnectionPolicyResponse{
 				JoinTimeoutMs:      12000,
 				AnswerTimeoutMs:    10000,
 				ICERestartEnabled:  true,
 				ReconnectBackoffMs: []int{250, 500, 1000, 2000, 5000},
+			},
+			SubscribeReceive: RTCSubscribeReceivePolicyResponse{
+				MaxVideoTracks: subscribeReceiveLimits.MaxVideoTracks,
+				MaxAudioTracks: subscribeReceiveLimits.MaxAudioTracks,
 			},
 		},
 		Moderation: &ModerationCapabilities{

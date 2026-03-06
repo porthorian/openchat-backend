@@ -4,6 +4,7 @@ Last updated: 2026-03-03
 
 ## 1) SFU Engine Choice
 - Should we implement SFU directly with Pion primitives or integrate Ion-SFU behind `rtc/sfu_adapter.go` first?
+  Use `pion/webrtc` as the baseline WebRTC engine and keep an adapter boundary for future SFU provider changes.
 - What level of codec/simulcast control do we require for MVP vs post-MVP?
 
 ## 2) Authentication and Session Binding
