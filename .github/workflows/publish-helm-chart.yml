@@ -62,7 +62,7 @@ jobs:
             "oci://ghcr.io/${{ steps.release.outputs.owner }}/charts"
 
       - name: Setup ORAS
-        uses: oras-project/setup-oras@v1
+        uses: oras-project/setup-oras@v2
 
       - name: Login to GHCR (ORAS)
         run: |
