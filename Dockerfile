@@ -21,7 +21,7 @@ RUN test -n "${BUILD_COMMIT}" && \
   -ldflags="-s -w -X github.com/openchat/openchat-backend/internal/app.BuildVersion=${BUILD_VERSION} -X github.com/openchat/openchat-backend/internal/app.BuildCommit=${BUILD_COMMIT} -X github.com/openchat/openchat-backend/internal/app.BuildTime=${BUILD_TIME}" \
   -o /out/openchatd ./cmd/openchatd
 
-FROM alpine:3.23
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata \
   && addgroup -S openchat \
