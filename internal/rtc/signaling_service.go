@@ -90,6 +90,7 @@ type wsClient struct {
 	send        chan Envelope
 	closed      chan struct{}
 	closeOnce   sync.Once
+	writeMu     sync.Mutex
 }
 
 func (c *wsClient) readPump() {
@@ -101,8 +102,9 @@ func (c *wsClient) readPump() {
 		return nil
 	})
 
-	if err := c.waitForJoin(); err != nil {
-		c.sendError("", "rtc_join_denied", err.Error(), false)
+	if requestID, err := c.waitForJoin(); err != nil {
+		code, retryable := joinErrorSemantics(err)
+		c.writeTerminalJoinError(requestID, code, err.Error(), retryable)
 		return
 	}
 
@@ -122,26 +124,26 @@ func (c *wsClient) readPump() {
 	}
 }
 
-func (c *wsClient) waitForJoin() error {
+func (c *wsClient) waitForJoin() (string, error) {
 	_ = c.conn.SetReadDeadline(time.Now().Add(12 * time.Second))
 	var envelope Envelope
 	if err := c.conn.ReadJSON(&envelope); err != nil {
-		return err
+		return "", err
 	}
 	if envelope.Type != "rtc.join" {
-		return errors.New("first signaling message must be rtc.join")
+		return envelope.RequestID, errors.New("first signaling message must be rtc.join")
 	}
 
 	var payload struct {
 		Ticket string `json:"ticket"`
 	}
 	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
-		return errors.New("invalid rtc.join payload")
+		return envelope.RequestID, errors.New("invalid rtc.join payload")
 	}
 
 	claims, err := c.service.tokens.ParseAndConsume(strings.TrimSpace(payload.Ticket))
 	if err != nil {
-		return err
+		return envelope.RequestID, err
 	}
 	participant := Participant{
 		ParticipantID: c.id,
@@ -176,7 +178,34 @@ func (c *wsClient) waitForJoin() error {
 	c.service.webrtc.RegisterParticipant(participant)
 
 	_ = c.conn.SetReadDeadline(time.Now().Add(40 * time.Second))
-	return nil
+	return envelope.RequestID, nil
+}
+
+func joinErrorSemantics(err error) (string, bool) {
+	switch {
+	case errors.Is(err, ErrExpiredTicket):
+		return "rtc_ticket_expired", true
+	case errors.Is(err, ErrReplayTicket):
+		return "rtc_ticket_replayed", false
+	default:
+		return "rtc_join_denied", false
+	}
+}
+
+func (c *wsClient) writeTerminalJoinError(requestID, code, message string, retryable bool) {
+	envelope := NewEnvelope("rtc.error", "", requestID, map[string]any{
+		"code": code, "message": message, "retryable": retryable,
+	})
+	c.writeMu.Lock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	err := c.conn.WriteJSON(envelope)
+	if err == nil {
+		_ = c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, code), time.Now().Add(time.Second))
+	}
+	c.writeMu.Unlock()
+	if err != nil {
+		c.service.logger.Warn("failed to deliver rtc join error", "code", code, "error", err)
+	}
 }
 
 func (c *wsClient) handleEnvelope(envelope Envelope) {
@@ -397,7 +426,10 @@ func (c *wsClient) writePump() {
 				return
 			}
 			_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := c.conn.WriteJSON(envelope); err != nil {
+			c.writeMu.Lock()
+			err := c.conn.WriteJSON(envelope)
+			c.writeMu.Unlock()
+			if err != nil {
 				return
 			}
 		case <-ticker.C:

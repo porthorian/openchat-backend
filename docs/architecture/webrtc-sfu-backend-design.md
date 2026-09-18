@@ -74,7 +74,7 @@ Design rule:
       "join_timeout_ms": 12000,
       "answer_timeout_ms": 10000,
       "ice_restart_enabled": true,
-      "reconnect_backoff_ms": [250, 500, 1000, 2000, 5000]
+      "reconnect_backoff_ms": [1000, 2000, 4000, 8000, 15000]
     }
   }
 }

@@ -42,6 +42,8 @@ Validate schema for:
   - `rtc_permission_denied`
   - `rtc_negotiation_failed`
 
+Join failures use `rtc.error` with the original `rtc.join` `request_id`, empty `channel_id`, and a payload containing `code`, `message`, and `retryable`. The server writes this envelope before its close frame. `rtc_ticket_expired` is retryable with a newly issued ticket; invalid or replayed tickets and membership or moderation denials are terminal. Clients must never reuse a ticket after a failed connection.
+
 Fixture pack (suggested):
 - `tests/contracts/rtc/capabilities/*.json`
 - `tests/contracts/rtc/signaling/*.json`
@@ -68,6 +70,7 @@ Fixture pack (suggested):
 - request/response correlation by `request_id`
 - duplicate client message idempotency
 - deterministic error mapping
+- `signaling_service_contract_test.go` verifies denied, expired, and replayed ticket errors arrive before the close frame, then confirms a successful join with a fresh ticket
 
 ## 7) Integration Test Matrix
 Run in-process API + signaling + SFU adapter test double:
@@ -75,8 +78,7 @@ Run in-process API + signaling + SFU adapter test double:
 - invalid join ticket (expired/replayed) rejected
 - concurrent joins in same room maintain consistent participant count
 - ICE candidate forwarding correctness
-- reconnect within grace window resumes session state
-- reconnect beyond grace window creates fresh join sequence
+- reconnect obtains a fresh ticket and creates a new signaling join sequence
 - moderator kick forces disconnect and room eviction
 - banned user cannot mint new join ticket
 - timeout user cannot publish but can remain subscribed (policy-dependent)

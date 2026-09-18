@@ -1,6 +1,7 @@
 package capabilities
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/openchat/openchat-backend/internal/app"
@@ -20,6 +21,10 @@ func TestBuildRTCCapabilitiesV2SFU(t *testing.T) {
 	}
 	if caps.RTC.SubscribeReceive.MaxVideoTracks != 8 || caps.RTC.SubscribeReceive.MaxAudioTracks != 16 {
 		t.Fatalf("expected subscribe receive defaults (8/16), got %+v", caps.RTC.SubscribeReceive)
+	}
+	wantBackoff := []int{1000, 2000, 4000, 8000, 15000}
+	if !reflect.DeepEqual(caps.RTC.ConnectionPolicy.ReconnectBackoffMs, wantBackoff) {
+		t.Fatalf("expected rtc reconnect backoff %v, got %v", wantBackoff, caps.RTC.ConnectionPolicy.ReconnectBackoffMs)
 	}
 }
 

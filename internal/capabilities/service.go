@@ -238,7 +238,7 @@ func (s *Service) Build() CapabilitiesResponse {
 				JoinTimeoutMs:      12000,
 				AnswerTimeoutMs:    10000,
 				ICERestartEnabled:  true,
-				ReconnectBackoffMs: []int{250, 500, 1000, 2000, 5000},
+				ReconnectBackoffMs: []int{1000, 2000, 4000, 8000, 15000},
 			},
 			SubscribeReceive: RTCSubscribeReceivePolicyResponse{
 				MaxVideoTracks: subscribeReceiveLimits.MaxVideoTracks,
