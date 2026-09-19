@@ -232,7 +232,7 @@ CREATE TABLE profiles (
   profile_version integer NOT NULL DEFAULT 1 CHECK (profile_version > 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT profiles_avatar_mode_check CHECK (
+  CONSTRAINT profiles_avatar_configuration_check CHECK (
     (
       avatar_mode = 'generated'
       AND avatar_preset_id IS NOT NULL

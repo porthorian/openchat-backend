@@ -27,6 +27,7 @@ type Hub struct {
 	mu                sync.RWMutex
 	clientsByID       map[string]*client
 	subscribersByRoom map[string]map[string]*client
+	channelServerFor  func(string) (string, bool)
 }
 
 type presenceMember struct {
@@ -52,6 +53,24 @@ func NewHub(logger *slog.Logger) *Hub {
 		},
 		clientsByID:       make(map[string]*client),
 		subscribersByRoom: make(map[string]map[string]*client),
+	}
+}
+
+func (h *Hub) SetChannelServerResolver(resolve func(string) (string, bool)) {
+	h.channelServerFor = resolve
+}
+
+func (h *Hub) DisconnectUser(serverID, userUID string) {
+	h.mu.RLock()
+	clients := make([]*client, 0)
+	for _, client := range h.clientsByID {
+		if client.serverID == serverID && client.userUID == userUID {
+			clients = append(clients, client)
+		}
+	}
+	h.mu.RUnlock()
+	for _, client := range clients {
+		client.close()
 	}
 }
 
@@ -130,7 +149,9 @@ func (h *Hub) BroadcastReadAck(update chat.ChannelReadAckUpdate) {
 	}
 	envelope := newEnvelope("chat.read_ack.updated", "", payload)
 	for _, client := range room {
-		client.enqueue(envelope)
+		if client.userUID == update.UserUID {
+			client.enqueue(envelope)
+		}
 	}
 }
 
@@ -430,6 +451,13 @@ func (c *client) handleEnvelope(envelope Envelope) {
 		if channelID == "" {
 			c.enqueue(errorEnvelope(envelope.RequestID, "chat_channel_required", "channel_id is required", false))
 			return
+		}
+		if c.hub.channelServerFor != nil {
+			serverID, exists := c.hub.channelServerFor(channelID)
+			if !exists || c.serverID == "" || serverID != c.serverID {
+				c.enqueue(errorEnvelope(envelope.RequestID, "chat_channel_forbidden", "channel is unavailable in this server", false))
+				return
+			}
 		}
 		snapshot, peers, joined := c.hub.subscribe(c, channelID)
 		c.enqueue(newEnvelope("chat.subscribed", envelope.RequestID, map[string]any{"channel_id": channelID}))

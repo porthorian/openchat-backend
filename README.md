@@ -18,10 +18,10 @@ Backend service for decentralized OpenChat server instances.
 
 ## Local Run
 ```bash
-go run ./cmd/openchatd
+OPENCHAT_DEV_HEADER_AUTH=1 go run ./cmd/openchatd
 ```
 
-Default address: `:8080`
+Default address: `:8080`. `OPENCHAT_DEV_HEADER_AUTH=1` accepts UID headers only from loopback peers in `OPENCHAT_ENV=development`; do not use it on a public deployment. Outside that explicit mode, requests require a server-issued Ed25519 challenge session. `OPENCHAT_DATABASE_URL` is required in production and applies forward-only migrations on startup. The current chat/profile services remain in-memory, so this pre-alpha service is not yet production durable.
 
 On startup, the server logs build metadata:
 - `version`

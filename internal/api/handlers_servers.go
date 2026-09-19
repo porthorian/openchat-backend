@@ -8,14 +8,37 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/openchat/openchat-backend/internal/auth"
 	"github.com/openchat/openchat-backend/internal/chat"
 )
 
 func (s *Server) listServers(w http.ResponseWriter, r *http.Request) {
 	requester := requesterFromContext(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{
-		"servers": s.chat.ListServersForUser(requester.UserUID),
-	})
+	servers := s.chat.ListServersForUser(requester.UserUID)
+	if s.cfg.IsProduction() {
+		verified, ok := r.Context().Value(sessionContextKey{}).(auth.Session)
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "verified session required", false)
+			return
+		}
+		allowed, err := s.auth.CanAccessServer(r.Context(), verified.ServerID, verified.UserUID)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "membership_unavailable", "membership check unavailable", true)
+			return
+		}
+		if !allowed {
+			writeError(w, http.StatusForbidden, "membership_required", "active membership required", false)
+			return
+		}
+		filtered := make([]chat.ServerDirectoryEntry, 0, 1)
+		for _, server := range servers {
+			if server.ServerID == verified.ServerID {
+				filtered = append(filtered, server)
+			}
+		}
+		servers = filtered
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"servers": servers})
 }
 
 func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {

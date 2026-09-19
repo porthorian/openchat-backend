@@ -11,6 +11,8 @@ import (
 
 	"github.com/openchat/openchat-backend/internal/api"
 	"github.com/openchat/openchat-backend/internal/app"
+	"github.com/openchat/openchat-backend/internal/auth"
+	"github.com/openchat/openchat-backend/internal/store/postgres"
 )
 
 func main() {
@@ -18,9 +20,26 @@ func main() {
 	build := app.CurrentBuildInfo()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
+	var authService *auth.Service
+	if cfg.DatabaseURL != "" {
+		startupCtx, startupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		pool, err := postgres.Open(startupCtx, cfg.DatabaseURL)
+		startupCancel()
+		if err != nil {
+			logger.Error("Postgres startup failed", "error", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
+		authService = auth.New(pool)
+	} else if cfg.IsProduction() {
+		logger.Error("production requires OPENCHAT_DATABASE_URL for verified sessions")
+		os.Exit(1)
+	}
+	server := api.NewServer(cfg, logger)
+	server.SetAuthService(authService)
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           api.NewServer(cfg, logger).Router(),
+		Handler:           server.Router(),
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       90 * time.Second,

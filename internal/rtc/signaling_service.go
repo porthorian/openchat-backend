@@ -1,6 +1,7 @@
 package rtc
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -14,13 +15,14 @@ import (
 )
 
 type SignalingService struct {
-	logger     *slog.Logger
-	tokens     *TokenService
-	webrtc     *PionEngine
-	upgrader   websocket.Upgrader
-	rooms      *roomHub
-	readLimit  int64
-	mediaHints *mediaHintRegistry
+	logger         *slog.Logger
+	tokens         *TokenService
+	webrtc         *PionEngine
+	upgrader       websocket.Upgrader
+	rooms          *roomHub
+	readLimit      int64
+	mediaHints     *mediaHintRegistry
+	joinAuthorizer func(context.Context, TicketClaims) error
 }
 
 type participantMediaHints struct {
@@ -65,6 +67,27 @@ func NewSignalingService(logger *slog.Logger, tokens *TokenService, cfg Signalin
 	return service
 }
 
+func (s *SignalingService) SetJoinAuthorizer(authorize func(context.Context, TicketClaims) error) {
+	s.joinAuthorizer = authorize
+}
+
+func (s *SignalingService) DisconnectUser(serverID, userUID string) {
+	s.rooms.mu.RLock()
+	clients := make([]*wsClient, 0)
+	for _, room := range s.rooms.rooms {
+		for _, client := range room {
+			if client.serverID == serverID && client.participant.UserUID == userUID {
+				clients = append(clients, client)
+			}
+		}
+	}
+	s.rooms.mu.RUnlock()
+	for _, client := range clients {
+		client.enqueue(NewEnvelope("rtc.kicked", client.participant.ChannelID, "", map[string]any{"reason": "membership_removed"}))
+		client.closeConnection()
+	}
+}
+
 func (s *SignalingService) ServeWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -73,6 +96,7 @@ func (s *SignalingService) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 	client := &wsClient{
 		id:      uuid.NewString(),
+		ctx:     r.Context(),
 		conn:    conn,
 		service: s,
 		send:    make(chan Envelope, 64),
@@ -83,6 +107,8 @@ func (s *SignalingService) ServeWS(w http.ResponseWriter, r *http.Request) {
 }
 
 type wsClient struct {
+	ctx         context.Context
+	serverID    string
 	id          string
 	conn        *websocket.Conn
 	service     *SignalingService
@@ -145,6 +171,12 @@ func (c *wsClient) waitForJoin() (string, error) {
 	if err != nil {
 		return envelope.RequestID, err
 	}
+	if c.service.joinAuthorizer != nil {
+		if err := c.service.joinAuthorizer(c.ctx, claims); err != nil {
+			return envelope.RequestID, err
+		}
+	}
+	c.serverID = claims.ServerID
 	participant := Participant{
 		ParticipantID: c.id,
 		ChannelID:     claims.ChannelID,

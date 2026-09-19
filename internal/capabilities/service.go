@@ -246,7 +246,7 @@ func (s *Service) Build() CapabilitiesResponse {
 			},
 		},
 		Moderation: &ModerationCapabilities{
-			Enabled: true,
+			Enabled: false,
 			Actions: ModerationActionSets{
 				Immediate:    []string{"kick", "timeout_short", "channel_lock"},
 				VoteRequired: []string{"ban", "timeout_long", "role_remove"},

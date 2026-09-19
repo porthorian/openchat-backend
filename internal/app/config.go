@@ -15,6 +15,8 @@ type Config struct {
 	TicketTTL                           time.Duration
 	TicketSecret                        string
 	Environment                         string
+	DatabaseURL                         string
+	DevHeaderAuth                       bool
 	AllowServerCreation                 bool
 	RTCSTUNURLs                         []string
 	RTCTURNURLs                         []string
@@ -63,6 +65,8 @@ func LoadConfigFromEnv() Config {
 		TicketTTL:           time.Duration(envOrDefaultInt("OPENCHAT_JOIN_TICKET_TTL_SECONDS", 60)) * time.Second,
 		TicketSecret:        envOrDefault("OPENCHAT_JOIN_TICKET_SECRET", "dev-insecure-secret-change-me"),
 		Environment:         envOrDefault("OPENCHAT_ENV", "development"),
+		DatabaseURL:         envOrDefault("OPENCHAT_DATABASE_URL", ""),
+		DevHeaderAuth:       envOrDefaultBool("OPENCHAT_DEV_HEADER_AUTH", false),
 		AllowServerCreation: envOrDefaultBool("OPENCHAT_ALLOW_SERVER_CREATION", true),
 		RTCSTUNURLs: envCSVOrDefault("OPENCHAT_RTC_STUN_URLS", []string{
 			"stun:stun.l.google.com:19302",
